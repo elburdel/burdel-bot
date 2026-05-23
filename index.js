@@ -47,7 +47,7 @@ client.once(Events.ClientReady, async () => {
         const canal = await client.channels.fetch(CANAL_BOTONES);
 
         // Limpiar el canal antes de mandar los nuevos botones
-        const mensajes fetch = await canal.messages.fetch({ limit: 10 });
+        const mensajes = await canal.messages.fetch({ limit: 10 });
         for (const msg of mensajes.values()) {
             await msg.delete();
         }
