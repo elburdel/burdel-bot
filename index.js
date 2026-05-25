@@ -249,4 +249,103 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
 
-            return await interaction.reply({ content: textoLista, ephemeral: true
+            return await interaction.reply({ content: textoLista, ephemeral: true });
+        }
+
+        if (interaction.customId === 'admin_agregar_cumple') {
+            const menuUsuarios = new UserSelectMenuBuilder()
+                .setCustomId('select_agregar_usuario')
+                .setPlaceholder('Seleccioná al cumpleañero de la lista...');
+
+            const filaMenu = new ActionRowBuilder().addComponents(menuUsuarios);
+
+            return await interaction.reply({
+                content: "👤 Elegí al chico que querés añadir:",
+                components: [filaMenu],
+                ephemeral: true
+            });
+        }
+
+        if (interaction.customId === 'admin_borrar_cumple') {
+            if (Object.keys(baseCumples).length === 0) {
+                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", ephemeral: true });
+            }
+
+            const menuUsuariosBorrar = new UserSelectMenuBuilder()
+                .setCustomId('select_borrar_usuario')
+                .setPlaceholder('Seleccioná a quién querés eliminar...');
+
+            const filaMenuBorrar = new ActionRowBuilder().addComponents(menuUsuariosBorrar);
+
+            return await interaction.reply({
+                content: "🗑️ Seleccioná al chico que querés remover:",
+                components: [filaMenuBorrar],
+                ephemeral: true
+            });
+        }
+    }
+
+    // LISTAS DESPLEGABLES
+    if (interaction.isUserSelectMenu()) {
+        const usuarioSeleccionado = interaction.values[0];
+
+        if (interaction.customId === 'select_agregar_usuario') {
+            adminCache.set(interaction.user.id, usuarioSeleccionado);
+
+            const modal = new ModalBuilder()
+                .setCustomId('modal_fecha_cumple')
+                .setTitle('Fecha de Cumpleaños');
+
+            const entradaFecha = new TextInputBuilder()
+                .setCustomId('input_fecha')
+                .setLabel('¿Qué día cumple? (Formato: DD/MM)')
+                .setPlaceholder('Ejemplo: 15/08')
+                .setStyle(TextInputStyle.Short)
+                .setMinLength(5)
+                .setMaxLength(5)
+                .setRequired(true);
+
+            const filaModal = new ActionRowBuilder().addComponents(entradaFecha);
+            modal.addComponents(filaModal);
+
+            return await interaction.showModal(modal);
+        }
+
+        if (interaction.customId === 'select_borrar_usuario') {
+            if (baseCumples[usuarioSeleccionado]) {
+                delete baseCumples[usuarioSeleccionado];
+                await respaldarEnDiscord();
+                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, ephemeral: true });
+            } else {
+                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", ephemeral: true });
+            }
+        }
+    }
+
+    // FORMULARIO MODAL FLOTANTE
+    if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
+        const fechaInput = interaction.fields.getTextInputValue('input_fecha');
+        const usuarioGuardado = adminCache.get(interaction.user.id);
+
+        const formatoValido = /^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput);
+        if (!formatoValido) {
+            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", ephemeral: true });
+        }
+
+        if (!usuarioGuardado) {
+            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", ephemeral: true });
+        }
+
+        baseCumples[usuarioGuardado] = fechaInput;
+        adminCache.delete(interaction.user.id);
+        
+        await respaldarEnDiscord();
+
+        return await interaction.reply({
+            content: `✅ ¡Espectacular, Seba! Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`,
+            ephemeral: true
+        });
+    }
+});
+
+client.login(process.env.TOKEN);
