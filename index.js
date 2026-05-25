@@ -30,19 +30,18 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMembers // Clave para que indexe bien los usuarios
+        GatewayIntentBits.GuildMembers
     ]
 });
 
-// IDs DE CANALES
+// IDs DE CANALES CONFIGURADOS
 const CANAL_BOTONES = '1507503587008188446';
 const CANAL_PRINCIPAL = '1424978392696229990'; // #| salón-principal
 const CANAL_PANEL_CONTROL = '1508567294551392448'; // #panel-control
+const CANAL_BASE_DATOS = '1508589852638052474'; // #📁-base-de-datos
 
-// Memoria volátil del bot
 let baseCumples = {};
 
-// Bolsa de mensajes fiesteros random para saludar
 const mensajesCumple = [
     "¡Hoy se toma fuerte! 🍻 Feliz cumpleaños <@USER>, que pases una noche tremenda en El Burdel. 🎉",
     "💥 ¡Atención comunidad! Hoy es el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
@@ -51,7 +50,6 @@ const mensajesCumple = [
     "✨ Que las narguilas y los brindis no falten hoy. ¡Muy feliz cumpleaños <@USER>! Pasala de diez loco. 🛕🔥"
 ];
 
-// LINKS DE LOS VIVOS
 const links = {
     rojo: 'https://web-app.voicemaker.media/room-share.html?roomId=4838650&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
     burdel: 'https://web-app.voicemaker.media/room-share.html?roomId=4431474&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
@@ -60,57 +58,71 @@ const links = {
 };
 
 const cooldowns = new Map();
-const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4; // 4 horas
+const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
 
-// Función para respaldar los datos en el canal de administración de Discord
+// Guarda el backup únicamente en el canal exclusivo de la base de datos
 async function respaldarEnDiscord() {
     try {
-        const canal = await client.channels.fetch(CANAL_PANEL_CONTROL);
-        const mensajes = await canal.messages.fetch({ limit: 50 });
+        const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
+        const mensajes = await canalBD.messages.fetch({ limit: 50 });
         
-        // Buscamos si ya existe un mensaje de backup anterior para borrarlo
-        const mensajeBackup = mensajes.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
-        if (mensajeBackup) {
-            await mensajeBackup.delete();
+        const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
+        for (const msg of mensajesBackup.values()) {
+            await msg.delete();
         }
 
-        // Creamos la cadena secreta de texto
-        const textoBackup = '||BACKUP_CUMPLES||' + JSON.stringify(baseCumples);
-        await canal.send({ content: textoBackup });
-        console.log("💾 Respaldo de cumpleaños guardado con éxito en Discord.");
+        const textoBackup = '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples);
+        await canalBD.send({ content: textoBackup });
+        console.log("💾 Datos respaldados en el canal de Base de Datos.");
     } catch (e) {
-        console.error("❌ Error al guardar respaldo en Discord:", e);
+        console.error("❌ Error al guardar en canal de datos:", e);
     }
 }
 
-// Función para recuperar los datos desde el canal de Discord
+// Sistema inteligente de recuperación (Busca en el canal nuevo, si está vacío rescata lo del panel de control)
 async function recuperarDesdeDiscord() {
     try {
-        const canal = await client.channels.fetch(CANAL_PANEL_CONTROL);
-        const mensajes = await canal.messages.fetch({ limit: 50 });
-        const mensajeBackup = mensajes.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
+        // 1. Intentamos leer del canal nuevo de Base de Datos
+        const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
+        const mensajesBD = await canalBD.messages.fetch({ limit: 50 });
+        const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
         
-        if (mensajeBackup) {
-            const jsonTexto = mensajeBackup.content.replace('||BACKUP_CUMPLES||', '');
+        if (backupNuevo) {
+            const jsonTexto = backupNuevo.content.replace('||DB_CUMPLES_DATA||', '');
             baseCumples = JSON.parse(jsonTexto);
-            console.log("🧠 Memoria recuperada con éxito. Cumpleaños cargados:", Object.keys(baseCumples).length);
+            console.log("🧠 Memoria restaurada desde el canal de datos. Chicos cargados:", Object.keys(baseCumples).length);
+            return;
+        }
+
+        // 2. Si el canal nuevo está vacío, rescatamos la lista vieja del panel de control antes de que se limpie
+        console.log("🔄 Canal nuevo vacío. Buscando herencia de datos en #panel-control...");
+        const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
+        const mensajesPanel = await canalPanel.messages.fetch({ limit: 50 });
+        const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
+
+        if (backupViejo) {
+            const jsonTextoViejo = backupViejo.content.replace('||BACKUP_CUMPLES||', '');
+            baseCumples = JSON.parse(jsonTextoViejo);
+            console.log("🦅 ¡Datos viejos rescatados con éxito! Pasando registros al nuevo canal...");
+            // Guardamos inmediatamente en el canal nuevo para migrar
+            await respaldarEnDiscord();
         } else {
             baseCumples = {};
-            console.log("📂 No se encontró ningún respaldo previo. Iniciando base vacía.");
+            console.log("📂 No se encontraron datos en ningún canal. Iniciando base limpia.");
         }
     } catch (e) {
         baseCumples = {};
-        console.error("❌ Error al recuperar respaldo de Discord:", e);
+        console.error("❌ Error al leer la memoria de Discord:", e);
     }
 }
 
 client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot conectado como ${client.user.tag}`);
 
-    // 1. RECUPERAR MEMORIA DE CUMPLES PRIMERO
+    // 1. EJECUTAR RECUPERACIÓN INTELIGENTE (MIGRACIÓN AUTOMÁTICA)
     await recuperarDesdeDiscord();
 
-    // 2. RECONSTRUIR BOTONES DE LAS SALAS VIVAS
+    // 2. BOTONES DE ANUNCIOS DE SALAS
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 });
@@ -133,19 +145,18 @@ client.once(Events.ClientReady, async () => {
             content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
             components: [fila1, fila2]
         });
-        console.log("📌 Botones de salas listos.");
     } catch (error) {
         console.error("❌ Error en canal de botones:", error);
     }
 
-    // 3. RECONSTRUIR PANEL DE CONTROL EN TU CANAL SECRETO
+    // 3. LIMPIEZA TOTAL DE #PANEL-CONTROL Y RECONSTRUCCIÓN PURA
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 50 });
         
-        // Borramos SOLO los mensajes del bot que NO sean el backup oculto
-        const mensajesAEditar = mensajesPanel.filter(m => m.author.id === client.user.id && !m.content.startsWith('||BACKUP_CUMPLES||'));
-        for (const msg of mensajesAEditar.values()) {
+        // Borramos TODOS los mensajes viejos del bot para que el canal quede impecable
+        const mensajesABorrar = mensajesPanel.filter(m => m.author.id === client.user.id);
+        for (const msg of mensajesABorrar.values()) {
             await msg.delete();
         }
 
@@ -159,16 +170,15 @@ client.once(Events.ClientReady, async () => {
             content: '🛠️ **PANEL DE CONTROL GENERAL DEL BOT** 🛠️\nManejá los cumpleaños de los chicos usando los botones interactivos de abajo.',
             components: [filaControl]
         });
-        console.log("📌 Panel de control de cumpleaños listo.");
+        console.log("📌 Panel de control de cumpleaños inicializado sin textos molestos.");
     } catch (error) {
         console.error("❌ Error en canal de panel de control:", error);
     }
 
-    // 4. EL DESPERTADOR EN HORA DE ARGENTINA (00:00)
+    // 4. CRON DE LAS 00:00 EN ARGENTINA
     new CronJob('0 0 0 * * *', async () => {
-        console.log("⏰ Revisando si hoy cumple años alguien...");
+        console.log("⏰ Revisando cumpleaños del día...");
         const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
-        
         const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL);
         
         for (const [userId, fecha] of Object.entries(baseCumples)) {
@@ -186,7 +196,7 @@ const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
     
-    // ACCIONES DE BOTONES DE ANUNCIOS DE SALAS
+    // BOTONES DE ANUNCIOS
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
@@ -225,7 +235,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // ACCIONES DEL PANEL DE CUMPLEAÑOS
+    // BOTONES DEL PANEL DE CONTROL
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
@@ -239,103 +249,4 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
 
-            return await interaction.reply({ content: textoLista, ephemeral: true });
-        }
-
-        if (interaction.customId === 'admin_agregar_cumple') {
-            const menuUsuarios = new UserSelectMenuBuilder()
-                .setCustomId('select_agregar_usuario')
-                .setPlaceholder('Seleccioná al cumpleañero de la lista...');
-
-            const filaMenu = new ActionRowBuilder().addComponents(menuUsuarios);
-
-            return await interaction.reply({
-                content: "👤 Elegí al chico que querés añadir:",
-                components: [filaMenu],
-                ephemeral: true
-            });
-        }
-
-        if (interaction.customId === 'admin_borrar_cumple') {
-            if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", ephemeral: true });
-            }
-
-            const menuUsuariosBorrar = new UserSelectMenuBuilder()
-                .setCustomId('select_borrar_usuario')
-                .setPlaceholder('Seleccioná a quién querés eliminar...');
-
-            const filaMenuBorrar = new ActionRowBuilder().addComponents(menuUsuariosBorrar);
-
-            return await interaction.reply({
-                content: "🗑️ Seleccioná al chico que querés remover:",
-                components: [filaMenuBorrar],
-                ephemeral: true
-            });
-        }
-    }
-
-    // MANEJO DE DESPLEGABLES
-    if (interaction.isUserSelectMenu()) {
-        const usuarioSeleccionado = interaction.values[0];
-
-        if (interaction.customId === 'select_agregar_usuario') {
-            adminCache.set(interaction.user.id, usuarioSeleccionado);
-
-            const modal = new ModalBuilder()
-                .setCustomId('modal_fecha_cumple')
-                .setTitle('Fecha de Cumpleaños');
-
-            const entradaFecha = new TextInputBuilder()
-                .setCustomId('input_fecha')
-                .setLabel('¿Qué día cumple? (Formato: DD/MM)')
-                .setPlaceholder('Ejemplo: 15/08')
-                .setStyle(TextInputStyle.Short)
-                .setMinLength(5)
-                .setMaxLength(5)
-                .setRequired(true);
-
-            const filaModal = new ActionRowBuilder().addComponents(entradaFecha);
-            modal.addComponents(filaModal);
-
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.customId === 'select_borrar_usuario') {
-            if (baseCumples[usuarioSeleccionado]) {
-                delete baseCumples[usuarioSeleccionado];
-                await respaldarEnDiscord(); // Guardamos el cambio en Discord
-                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}> del sistema.`, ephemeral: true });
-            } else {
-                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", ephemeral: true });
-            }
-        }
-    }
-
-    // RECEPCIÓN DEL FORMULARIO FLOTANTE (MODAL)
-    if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
-        const fechaInput = interaction.fields.getTextInputValue('input_fecha');
-        const usuarioGuardado = adminCache.get(interaction.user.id);
-
-        const formatoValido = /^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput);
-        if (!formatoValido) {
-            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", ephemeral: true });
-        }
-
-        if (!usuarioGuardado) {
-            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", ephemeral: true });
-        }
-
-        baseCumples[usuarioGuardado] = fechaInput;
-        adminCache.delete(interaction.user.id);
-        
-        await respaldarEnDiscord(); // Guardamos el backup en Discord definitivo
-
-        return await interaction.reply({
-            content: `✅ ¡Espectacular, Seba! Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`,
-            ephemeral: true
-        });
-    }
-});
-
-client.login(process.env.TOKEN);
+            return await interaction.reply({ content: textoLista, ephemeral: true
