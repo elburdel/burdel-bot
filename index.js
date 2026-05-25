@@ -36,9 +36,9 @@ const client = new Client({
 
 // IDs DE CANALES CONFIGURADOS
 const CANAL_BOTONES = '1507503587008188446';
-const CANAL_PRINCIPAL = '1424978392696229990'; // #| salón-principal
-const CANAL_PANEL_CONTROL = '1508567294551392448'; // #panel-control
-const CANAL_BASE_DATOS = '1508589852638052474'; // #📁-base-de-datos
+const CANAL_PRINCIPAL = '1424978392696229990'; 
+const CANAL_PANEL_CONTROL = '1508567294551392448'; 
+const CANAL_BASE_DATOS = '1508589852638052474'; 
 
 let baseCumples = {};
 
@@ -60,124 +60,122 @@ const links = {
 const cooldowns = new Map();
 const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
 
-// Guarda el backup únicamente en el canal exclusivo de la base de datos
+// Guarda el backup eficientemente borrando solo el anterior
 async function respaldarEnDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
-        const mensajes = await canalBD.messages.fetch({ limit: 50 });
+        const mensajes = await canalBD.messages.fetch({ limit: 10 }); // Límite bajo para ahorrar RAM
         
         const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
         for (const msg of mensajesBackup.values()) {
-            await msg.delete();
+            await msg.delete().catch(() => {});
         }
 
         const textoBackup = '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples);
         await canalBD.send({ content: textoBackup });
-        console.log("💾 Datos respaldados en el canal de Base de Datos.");
+        console.log("💾 Datos respaldados con éxito.");
     } catch (e) {
-        console.error("❌ Error al guardar en canal de datos:", e);
+        console.error("❌ Error al respaldar:", e);
     }
 }
 
-// Sistema inteligente de recuperación (Busca en el canal nuevo, si está vacío rescata lo del panel de control)
+// Carga los datos pidiendo el mínimo historial posible (Optimizado para Render Free)
 async function recuperarDesdeDiscord() {
     try {
-        // 1. Intentamos leer del canal nuevo de Base de Datos
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
-        const mensajesBD = await canalBD.messages.fetch({ limit: 50 });
+        const mensajesBD = await canalBD.messages.fetch({ limit: 5 }); // Consume nada de RAM
         const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
         
         if (backupNuevo) {
             const jsonTexto = backupNuevo.content.replace('||DB_CUMPLES_DATA||', '');
             baseCumples = JSON.parse(jsonTexto);
-            console.log("🧠 Memoria restaurada desde el canal de datos. Chicos cargados:", Object.keys(baseCumples).length);
+            console.log("🧠 Memoria restaurada. Registros:", Object.keys(baseCumples).length);
             return;
         }
 
-        // 2. Si el canal nuevo está vacío, rescatamos la lista vieja del panel de control antes de que se limpie
-        console.log("🔄 Canal nuevo vacío. Buscando herencia de datos en #panel-control...");
+        // Si no hay nada, busca herencia una única vez
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
-        const mensajesPanel = await canalPanel.messages.fetch({ limit: 50 });
+        const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
         const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
 
         if (backupViejo) {
             const jsonTextoViejo = backupViejo.content.replace('||BACKUP_CUMPLES||', '');
             baseCumples = JSON.parse(jsonTextoViejo);
-            console.log("🦅 ¡Datos viejos rescatados con éxito! Pasando registros al nuevo canal...");
-            // Guardamos inmediatamente en el canal nuevo para migrar
             await respaldarEnDiscord();
+            console.log("🦅 Herencia de datos migrada con éxito.");
         } else {
             baseCumples = {};
-            console.log("📂 No se encontraron datos en ningún canal. Iniciando base limpia.");
+            console.log("📂 Sin datos previos. Base limpia.");
         }
     } catch (e) {
         baseCumples = {};
-        console.error("❌ Error al leer la memoria de Discord:", e);
+        console.error("❌ Error en recuperación de memoria:", e);
     }
 }
 
 client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot conectado como ${client.user.tag}`);
 
-    // 1. EJECUTAR RECUPERACIÓN INTELIGENTE (MIGRACIÓN AUTOMÁTICA)
+    // 1. LEER LA BASE DE DATOS OCULTA
     await recuperarDesdeDiscord();
 
-    // 2. BOTONES DE ANUNCIOS DE SALAS
+    // 2. CONTROL INTELIGENTE DE BOTONES DE SALAS (No borra si ya existen)
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 });
-        const mensajesBot = mensajes.filter(m => m.author.id === client.user.id);
-        for (const msg of mensajesBot.values()) {
-            await msg.delete();
+        const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
+
+        if (!yaTieneBotones) {
+            // Solo si no existen los botones en el chat, los creamos de cero
+            const fila1 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_rojo').setLabel('🔴 EL CUARTO ROJO').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('btn_burdel').setLabel('🍻 EL BURDEL').setStyle(ButtonStyle.Primary)
+            );
+
+            const fila2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_bubbaloo').setLabel('🍬 BUBBALOO TEAM').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('btn_templo').setLabel('🛕 EL TEMPLO').setStyle(ButtonStyle.Secondary)
+            );
+
+            await canalAnuncios.send({
+                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                components: [fila1, fila2]
+            });
+            console.log("📌 Botones de salas creados por primera vez.");
+        } else {
+            console.log("👍 Los botones de salas ya estaban puestos. No se gastó RAM.");
         }
-
-        const fila1 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('btn_rojo').setLabel('🔴 EL CUARTO ROJO').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('btn_burdel').setLabel('🍻 EL BURDEL').setStyle(ButtonStyle.Primary)
-        );
-
-        const fila2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('btn_bubbaloo').setLabel('🍬 BUBBALOO TEAM').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('btn_templo').setLabel('🛕 EL TEMPLO').setStyle(ButtonStyle.Secondary)
-        );
-
-        await canalAnuncios.send({
-            content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
-            components: [fila1, fila2]
-        });
     } catch (error) {
         console.error("❌ Error en canal de botones:", error);
     }
 
-    // 3. LIMPIEZA TOTAL DE #PANEL-CONTROL Y RECONSTRUCCIÓN PURA
+    // 3. CONTROL INTELIGENTE DEL PANEL DE CONTROL (No borra si ya existe)
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
-        const mensajesPanel = await canalPanel.messages.fetch({ limit: 50 });
-        
-        // Borramos TODOS los mensajes viejos del bot para que el canal quede impecable
-        const mensajesABorrar = mensajesPanel.filter(m => m.author.id === client.user.id);
-        for (const msg of mensajesABorrar.values()) {
-            await msg.delete();
+        const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
+        const yaTienePanel = mensajesPanel.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE CONTROL GENERAL"));
+
+        if (!yaTienePanel) {
+            const filaControl = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('admin_ver_cumples').setLabel('🔵 VER CUMPLEAÑOS').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('admin_agregar_cumple').setLabel('🟢 AGREGAR CUMPLE').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('admin_borrar_cumple').setLabel('🔴 BORRAR CUMPLE').setStyle(ButtonStyle.Danger)
+            );
+
+            await canalPanel.send({
+                content: '🛠️ **PANEL DE CONTROL GENERAL DEL BOT** 🛠️\nManejá los cumpleaños de los chicos usando los botones interactivos de abajo.',
+                components: [filaControl]
+            });
+            console.log("📌 Panel de control inicializado por primera vez.");
+        } else {
+            console.log("👍 El panel de control ya estaba activo. No se gastó RAM.");
         }
-
-        const filaControl = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('admin_ver_cumples').setLabel('🔵 VER CUMPLEAÑOS').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('admin_agregar_cumple').setLabel('🟢 AGREGAR CUMPLE').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('admin_borrar_cumple').setLabel('🔴 BORRAR CUMPLE').setStyle(ButtonStyle.Danger)
-        );
-
-        await canalPanel.send({
-            content: '🛠️ **PANEL DE CONTROL GENERAL DEL BOT** 🛠️\nManejá los cumpleaños de los chicos usando los botones interactivos de abajo.',
-            components: [filaControl]
-        });
-        console.log("📌 Panel de control de cumpleaños inicializado sin textos molestos.");
     } catch (error) {
         console.error("❌ Error en canal de panel de control:", error);
     }
 
-    // 4. CRON DE LAS 00:00 EN ARGENTINA
+    // 4. RELOJ DE LAS 00:00 EN ARGENTINA
     new CronJob('0 0 0 * * *', async () => {
-        console.log("⏰ Revisando cumpleaños del día...");
         const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
         const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL);
         
@@ -186,7 +184,6 @@ client.once(Events.ClientReady, async () => {
                 const fraseElegida = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
                 const mensajeFinal = fraseElegida.replace('<@USER>', `<@${userId}>`);
                 await canalDestino.send(mensajeFinal);
-                console.log(`🎉 Saludo enviado para el usuario ID: ${userId}`);
             }
         }
     }, null, true, 'America/Argentina/Buenos_Aires');
@@ -196,7 +193,7 @@ const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
     
-    // BOTONES DE ANUNCIOS
+    // INTERACCIONES DE SALAS
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
@@ -226,16 +223,15 @@ client.on(Events.InteractionCreate, async interaction => {
             };
 
             await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada con éxito!`, ephemeral: true });
+            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, ephemeral: true });
             setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 10000);
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: "❌ Hubo un error al enviar el anuncio.", ephemeral: true });
         }
         return;
     }
 
-    // BOTONES DEL PANEL DE CONTROL
+    // INTERACCIONES DEL PANEL
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
@@ -285,7 +281,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // LISTAS DESPLEGABLES
+    // MENÚS DESPLEGABLES
     if (interaction.isUserSelectMenu()) {
         const usuarioSeleccionado = interaction.values[0];
 
@@ -322,7 +318,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // FORMULARIO MODAL FLOTANTE
+    // SUBMIT DEL MODAL
     if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
         const fechaInput = interaction.fields.getTextInputValue('input_fecha');
         const usuarioGuardado = adminCache.get(interaction.user.id);
