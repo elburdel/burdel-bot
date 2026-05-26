@@ -1,13 +1,17 @@
 const http = require('http');
 
-const PORT = process.env.PORT || 10000; // Forzamos el puerto 10000 para que Render y UptimeRobot no reboten
+// Render define el puerto en process.env.PORT de forma automática (suele ser 10000)
+// Si no existe, usa el 10000 por defecto.
+const PORT = process.env.PORT || 10000; 
 
 // Servidor HTTP para que Render no se duerma
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.write("Bot online");
-  res.end();
-}).listen(PORT, () => {
+  res.end("Bot online");
+});
+
+// Escuchamos en el puerto asignado y en '0.0.0.0' (Esto le vuela la cabeza a Render y acepta la conexión al toque)
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
 });
 
