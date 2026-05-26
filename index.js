@@ -1,12 +1,15 @@
 const http = require('http');
 
+const PORT = process.env.PORT || 10000; // Forzamos el puerto 10000 para que Render y UptimeRobot no reboten
+
 // Servidor HTTP para que Render no se duerma
 http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.write("Bot online");
   res.end();
-}).listen(process.env.PORT || 3000);
-
-console.log("Servidor HTTP interno listo para Render.");
+}).listen(PORT, () => {
+  console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
+});
 
 require('dotenv').config();
 
@@ -126,7 +129,6 @@ client.once(Events.ClientReady, async () => {
         const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
 
         if (!yaTieneBotones) {
-            // Solo si no existen los botones en el chat, los creamos de cero
             const fila1 = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('btn_rojo').setLabel('🔴 EL CUARTO ROJO').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('btn_burdel').setLabel('🍻 EL BURDEL').setStyle(ButtonStyle.Primary)
@@ -138,7 +140,7 @@ client.once(Events.ClientReady, async () => {
             );
 
             await canalAnuncios.send({
-                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                 components: [fila1, fila2]
             });
             console.log("📌 Botones de salas creados por primera vez.");
@@ -239,7 +241,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
             }
 
-            let textoLista = "🎂 **LISTA DE CUMPLEANIOS REGISTRADOS** 🎂\n\n";
+            let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
             for (const [userId, fecha] of Object.entries(baseCumples)) {
                 textoLista += `• <@${userId}> ➔ **${fecha}**\n`;
             }
