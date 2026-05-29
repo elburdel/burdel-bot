@@ -1,17 +1,4 @@
 const http = require('http');
-
-const PORT = process.env.PORT || 10000; 
-
-// Servidor HTTP para engañar a Render
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end("Bot online");
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-});
-
 require('dotenv').config();
 
 const {
@@ -29,6 +16,8 @@ const {
 
 const { CronJob } = require('cron');
 const moment = require('moment-timezone');
+
+const PORT = process.env.PORT || 10000; 
 
 const client = new Client({
     intents: [
@@ -115,14 +104,9 @@ async function recuperarDesdeDiscord() {
 }
 
 client.once(Events.ClientReady, async () => {
-    // Ponemos este log ARRIBA DE TODO para saber al instante si entró al evento de conexión exitosa
-    console.log(`📡 ¡Entrando a ClientReady! Intentando identificar a: ${client.user.tag}`);
+    console.log(`✅ Bot conectado con éxito como ${client.user.tag}`);
 
-    try {
-        await recuperarDesdeDiscord();
-    } catch (err) {
-        console.error("❌ Falló la carga de memoria inicial:", err);
-    }
+    await recuperarDesdeDiscord();
 
     // Control de botones de salas protegido
     try {
@@ -142,7 +126,7 @@ client.once(Events.ClientReady, async () => {
             );
 
             await canalAnuncios.send({
-                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                 components: [fila1, fila2]
             });
             console.log("📌 Botones de salas creados por primera vez.");
@@ -150,7 +134,7 @@ client.once(Events.ClientReady, async () => {
             console.log("👍 Los botones de salas ya estaban puestos. No se gastó RAM.");
         }
     } catch (error) {
-        console.error("❌ Error crítico en canal de botones (Salas):", error.message);
+        console.error("❌ Error en canal de botones:", error.message);
     }
 
     // Control del panel protegido
@@ -175,10 +159,10 @@ client.once(Events.ClientReady, async () => {
             console.log("👍 El panel de control ya estaba activo. No se gastó RAM.");
         }
     } catch (error) {
-        console.error("❌ Error crítico en canal de panel de control:", error.message);
+        console.error("❌ Error en canal de panel de control:", error.message);
     }
 
-    // CronJob
+    // CronJob de cumpleaños
     try {
         new CronJob('0 0 0 * * *', async () => {
             const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
@@ -193,14 +177,13 @@ client.once(Events.ClientReady, async () => {
             }
         }, null, true, 'America/Argentina/Buenos_Aires');
     } catch(err) {
-        console.error("❌ Error al armar el CronJob de cumples:", err);
+        console.error("❌ Error al armar el CronJob:", err);
     }
 });
 
 const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
-    
     // INTERACCIONES DE SALAS
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
@@ -241,7 +224,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
     // INTERACCIONES DEL PANEL
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
-        
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) {
                 return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
@@ -354,8 +336,18 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// Forzamos un log antes de disparar el login para asegurar que el token se lee del entorno
-console.log("🔑 Intentando conectar el cliente a Discord con el token provisto...");
-client.login(process.env.TOKEN).catch(err => {
-    console.error("💥 ERROR CRÍTICO AL INICIAR SESIÓN EN DISCORD:", err);
+// Creación del servidor HTTP para que Render lo dé por vivo al instante
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end("Bot online");
+});
+
+// DISPARADOR INTELIGENTE: Escuchamos el puerto y RECIÉN AHÍ mandamos el login a Discord
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
+  console.log("🔑 Red de Render validada. Conectando el cliente a Discord ahora...");
+  
+  client.login(process.env.TOKEN).catch(err => {
+      console.error("💥 ERROR CRÍTICO AL INICIAR SESIÓN EN DISCORD:", err);
+  });
 });
