@@ -1,16 +1,14 @@
 const http = require('http');
 
-// Render define el puerto en process.env.PORT de forma automática (suele ser 10000)
-// Si no existe, usa el 10000 por defecto.
+// Configuración del puerto compatible con Render
 const PORT = process.env.PORT || 10000; 
 
-// Servidor HTTP para que Render no se duerma
+// Servidor HTTP para engañar a Render
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end("Bot online");
 });
 
-// Escuchamos en el puerto asignado y en '0.0.0.0' (Esto le vuela la cabeza a Render y acepta la conexión al toque)
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
 });
@@ -27,8 +25,7 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    Events,
-    MessageFlags // <-- Sumamos las Flags para la nueva versión de Discord
+    Events
 } = require('discord.js');
 
 const { CronJob } = require('cron');
@@ -72,7 +69,7 @@ const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
 async function respaldarEnDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
-        const mensajes = await canalBD.messages.fetch({ limit: 10 }); // Límite bajo para ahorrar RAM
+        const mensajes = await canalBD.messages.fetch({ limit: 10 });
         
         const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
         for (const msg of mensajesBackup.values()) {
@@ -87,11 +84,11 @@ async function respaldarEnDiscord() {
     }
 }
 
-// Carga los datos pidiendo el mínimo historial posible (Optimizado para Render Free)
+// Carga los datos pidiendo el mínimo historial posible
 async function recuperarDesdeDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
-        const mensajesBD = await canalBD.messages.fetch({ limit: 5 }); // Consume nada de RAM
+        const mensajesBD = await canalBD.messages.fetch({ limit: 5 });
         const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
         
         if (backupNuevo) {
@@ -101,7 +98,6 @@ async function recuperarDesdeDiscord() {
             return;
         }
 
-        // Si no hay nada, busca herencia una única vez
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
         const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
@@ -124,10 +120,8 @@ async function recuperarDesdeDiscord() {
 client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot conectado como ${client.user.tag}`);
 
-    // 1. LEER LA BASE DE DATOS OCULTA
     await recuperarDesdeDiscord();
 
-    // 2. CONTROL INTELIGENTE DE BOTONES DE SALAS (No borra si ya existen)
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 });
@@ -156,7 +150,6 @@ client.once(Events.ClientReady, async () => {
         console.error("❌ Error en canal de botones:", error);
     }
 
-    // 3. CONTROL INTELIGENTE DEL PANEL DE CONTROL (No borra si ya existe)
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
@@ -181,7 +174,6 @@ client.once(Events.ClientReady, async () => {
         console.error("❌ Error en canal de panel de control:", error);
     }
 
-    // 4. RELOJ DE LAS 00:00 EN ARGENTINA
     new CronJob('0 0 0 * * *', async () => {
         const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
         const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL);
@@ -212,13 +204,14 @@ client.on(Events.InteractionCreate, async interaction => {
             const tiempoPasado = ahora - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
                 const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
-                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: [MessageFlags.Ephemeral] });
+                // Usamos el flag numérico de Discord de forma directa (64 es Ephemeral/Oculto) para evitar incompatibilidades
+                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: 64 });
                 setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 30000);
                 return;
             }
         }
 
-        cooldowns.set(key, trabaja = ahora);
+        cooldowns.set(key, ahora);
 
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
@@ -230,7 +223,7 @@ client.on(Events.InteractionCreate, async interaction => {
             };
 
             await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: [MessageFlags.Ephemeral] });
+            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: 64 });
             setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 10000);
         } catch (error) {
             console.error(error);
@@ -238,12 +231,12 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // INTERACCIONES DEL PANEL (Corregido con Formato Flags + DeferReply)
+    // INTERACCIONES DEL PANEL (Solución definitiva para Demoras de Servidor)
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
+                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: 64 });
             }
 
             let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
@@ -252,12 +245,12 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
 
-            return await interaction.reply({ content: textoLista, flags: [MessageFlags.Ephemeral] });
+            return await interaction.reply({ content: textoLista, flags: 64 });
         }
 
         if (interaction.customId === 'admin_agregar_cumple') {
-            // Avisamos a Discord que aguarde un toque usando el nuevo sistema de Flags
-            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+            // Diferimos la respuesta de forma segura para ganar 15 minutos (64 = Oculto)
+            await interaction.deferReply({ flags: 64 });
 
             const menuUsuarios = new UserSelectMenuBuilder()
                 .setCustomId('select_agregar_usuario')
@@ -273,11 +266,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
         if (interaction.customId === 'admin_borrar_cumple') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", flags: [MessageFlags.Ephemeral] });
+                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", flags: 64 });
             }
 
-            // Avisamos a Discord que aguarde un toque usando el nuevo sistema de Flags
-            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+            await interaction.deferReply({ flags: 64 });
 
             const menuUsuariosBorrar = new UserSelectMenuBuilder()
                 .setCustomId('select_borrar_usuario')
@@ -322,9 +314,9 @@ client.on(Events.InteractionCreate, async interaction => {
             if (baseCumples[usuarioSeleccionado]) {
                 delete baseCumples[usuarioSeleccionado];
                 await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, flags: [MessageFlags.Ephemeral] });
+                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, flags: 64 });
             } else {
-                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", flags: [MessageFlags.Ephemeral] });
+                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", flags: 64 });
             }
         }
     }
@@ -336,11 +328,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const formatoValido = /^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput);
         if (!formatoValido) {
-            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", flags: [MessageFlags.Ephemeral] });
+            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", flags: 64 });
         }
 
         if (!usuarioGuardado) {
-            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", flags: [MessageFlags.Ephemeral] });
+            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", flags: 64 });
         }
 
         baseCumples[usuarioGuardado] = fechaInput;
@@ -350,7 +342,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         return await interaction.reply({
             content: `✅ ¡Espectacular, Seba! Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`,
-            flags: [MessageFlags.Ephemeral]
+            flags: 64
         });
     }
 });
