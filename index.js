@@ -1,6 +1,5 @@
 const http = require('http');
 
-// Configuración del puerto compatible con Render
 const PORT = process.env.PORT || 10000; 
 
 // Servidor HTTP para engañar a Render
@@ -65,7 +64,6 @@ const links = {
 const cooldowns = new Map();
 const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
 
-// Guarda el backup eficientemente borrando solo el anterior
 async function respaldarEnDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
@@ -84,7 +82,6 @@ async function respaldarEnDiscord() {
     }
 }
 
-// Carga los datos pidiendo el mínimo historial posible
 async function recuperarDesdeDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
@@ -118,10 +115,16 @@ async function recuperarDesdeDiscord() {
 }
 
 client.once(Events.ClientReady, async () => {
-    console.log(`✅ Bot conectado como ${client.user.tag}`);
+    // Ponemos este log ARRIBA DE TODO para saber al instante si entró al evento de conexión exitosa
+    console.log(`📡 ¡Entrando a ClientReady! Intentando identificar a: ${client.user.tag}`);
 
-    await recuperarDesdeDiscord();
+    try {
+        await recuperarDesdeDiscord();
+    } catch (err) {
+        console.error("❌ Falló la carga de memoria inicial:", err);
+    }
 
+    // Control de botones de salas protegido
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 });
@@ -147,9 +150,10 @@ client.once(Events.ClientReady, async () => {
             console.log("👍 Los botones de salas ya estaban puestos. No se gastó RAM.");
         }
     } catch (error) {
-        console.error("❌ Error en canal de botones:", error);
+        console.error("❌ Error crítico en canal de botones (Salas):", error.message);
     }
 
+    // Control del panel protegido
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
@@ -171,21 +175,26 @@ client.once(Events.ClientReady, async () => {
             console.log("👍 El panel de control ya estaba activo. No se gastó RAM.");
         }
     } catch (error) {
-        console.error("❌ Error en canal de panel de control:", error);
+        console.error("❌ Error crítico en canal de panel de control:", error.message);
     }
 
-    new CronJob('0 0 0 * * *', async () => {
-        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
-        const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL);
-        
-        for (const [userId, fecha] of Object.entries(baseCumples)) {
-            if (fecha === hoy) {
-                const fraseElegida = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
-                const mensajeFinal = fraseElegida.replace('<@USER>', `<@${userId}>`);
-                await canalDestino.send(mensajeFinal);
+    // CronJob
+    try {
+        new CronJob('0 0 0 * * *', async () => {
+            const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
+            const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL);
+            
+            for (const [userId, fecha] of Object.entries(baseCumples)) {
+                if (fecha === hoy) {
+                    const fraseElegida = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
+                    const mensajeFinal = fraseElegida.replace('<@USER>', `<@${userId}>`);
+                    await canalDestino.send(mensajeFinal);
+                }
             }
-        }
-    }, null, true, 'America/America/Argentina/Buenos_Aires');
+        }, null, true, 'America/Argentina/Buenos_Aires');
+    } catch(err) {
+        console.error("❌ Error al armar el CronJob de cumples:", err);
+    }
 });
 
 const adminCache = new Map();
@@ -230,7 +239,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // INTERACCIONES DEL PANEL (Corregido y Limpio con Ephemeral Tradicional + Defer)
+    // INTERACCIONES DEL PANEL
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
@@ -248,7 +257,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if (interaction.customId === 'admin_agregar_cumple') {
-            // Aseguramos la respuesta diferida oculta para evitar el Interacción Fallida
             await interaction.deferReply({ ephemeral: true });
 
             const menuUsuarios = new UserSelectMenuBuilder()
@@ -346,4 +354,8 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-client.login(process.env.TOKEN);
+// Forzamos un log antes de disparar el login para asegurar que el token se lee del entorno
+console.log("🔑 Intentando conectar el cliente a Discord con el token provisto...");
+client.login(process.env.TOKEN).catch(err => {
+    console.error("💥 ERROR CRÍTICO AL INICIAR SESIÓN EN DISCORD:", err);
+});
