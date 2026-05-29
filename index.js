@@ -185,7 +185,7 @@ client.once(Events.ClientReady, async () => {
                 await canalDestino.send(mensajeFinal);
             }
         }
-    }, null, true, 'America/Argentina/Buenos_Aires');
+    }, null, true, 'America/America/Argentina/Buenos_Aires');
 });
 
 const adminCache = new Map();
@@ -204,8 +204,7 @@ client.on(Events.InteractionCreate, async interaction => {
             const tiempoPasado = ahora - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
                 const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
-                // Usamos el flag numérico de Discord de forma directa (64 es Ephemeral/Oculto) para evitar incompatibilidades
-                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: 64 });
+                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, ephemeral: true });
                 setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 30000);
                 return;
             }
@@ -223,7 +222,7 @@ client.on(Events.InteractionCreate, async interaction => {
             };
 
             await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: 64 });
+            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, ephemeral: true });
             setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 10000);
         } catch (error) {
             console.error(error);
@@ -231,12 +230,12 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // INTERACCIONES DEL PANEL (Solución definitiva para Demoras de Servidor)
+    // INTERACCIONES DEL PANEL (Corregido y Limpio con Ephemeral Tradicional + Defer)
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: 64 });
+                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
             }
 
             let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
@@ -245,12 +244,12 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
 
-            return await interaction.reply({ content: textoLista, flags: 64 });
+            return await interaction.reply({ content: textoLista, ephemeral: true });
         }
 
         if (interaction.customId === 'admin_agregar_cumple') {
-            // Diferimos la respuesta de forma segura para ganar 15 minutos (64 = Oculto)
-            await interaction.deferReply({ flags: 64 });
+            // Aseguramos la respuesta diferida oculta para evitar el Interacción Fallida
+            await interaction.deferReply({ ephemeral: true });
 
             const menuUsuarios = new UserSelectMenuBuilder()
                 .setCustomId('select_agregar_usuario')
@@ -266,10 +265,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
         if (interaction.customId === 'admin_borrar_cumple') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", flags: 64 });
+                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", ephemeral: true });
             }
 
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply({ ephemeral: true });
 
             const menuUsuariosBorrar = new UserSelectMenuBuilder()
                 .setCustomId('select_borrar_usuario')
@@ -314,9 +313,9 @@ client.on(Events.InteractionCreate, async interaction => {
             if (baseCumples[usuarioSeleccionado]) {
                 delete baseCumples[usuarioSeleccionado];
                 await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, flags: 64 });
+                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, ephemeral: true });
             } else {
-                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", flags: 64 });
+                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", ephemeral: true });
             }
         }
     }
@@ -328,11 +327,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const formatoValido = /^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput);
         if (!formatoValido) {
-            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", flags: 64 });
+            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", ephemeral: true });
         }
 
         if (!usuarioGuardado) {
-            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", flags: 64 });
+            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", ephemeral: true });
         }
 
         baseCumples[usuarioGuardado] = fechaInput;
@@ -342,7 +341,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         return await interaction.reply({
             content: `✅ ¡Espectacular, Seba! Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`,
-            flags: 64
+            ephemeral: true
         });
     }
 });
