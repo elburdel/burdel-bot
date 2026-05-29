@@ -95,7 +95,9 @@ async function recuperarDesdeDiscord() {
 }
 
 client.once(Events.ClientReady, async () => {
+    console.log("===============================================");
     console.log(`🤖 ¡BOT ONLINE EN DISCORD! Conectado como: ${client.user.tag}`);
+    console.log("===============================================");
     await recuperarDesdeDiscord().catch(e => console.error("Error cargando memoria:", e));
 
     // Control de botones de salas protegido
@@ -176,7 +178,7 @@ client.once(Events.ClientReady, async () => {
 const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
-    // INTERACCIONES DE SALAS (Arreglado el cooldown de telemetría por "ahora")
+    // BOTONES DE ANUNCIOS DE SALAS (Reparado "ahora" para evitar crash)
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
@@ -205,7 +207,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // INTERACCIONES DEL PANEL ADMINISTRATIVO
+    // BOTONES DEL PANEL ADMINISTRATIVO
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
@@ -227,7 +229,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // LISTAS DESPLEGABLES
+    // SELECT MENUS
     if (interaction.isUserSelectMenu()) {
         const usuarioSeleccionado = interaction.values[0];
         if (interaction.customId === 'select_agregar_usuario') {
@@ -245,7 +247,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // FORMULARIO MODAL (SUBMIT)
+    // SUBMIT MODAL
     if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
         const fechaInput = interaction.fields.getTextInputValue('input_fecha');
         const usuarioGuardado = adminCache.get(interaction.user.id);
@@ -258,7 +260,9 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// Levantar servidor web e iniciar sesión en orden seguro
+// ==========================================
+// EL MOTOR DEL ARRANQUE (SIEMPRE AL FINAL)
+// ==========================================
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end("Bot online");
@@ -266,9 +270,16 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-  console.log("🔑 Red de Render validada. Conectando el cliente a Discord ahora...");
+  console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno de Render:");
   
+  if (!process.env.TOKEN) {
+      console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO (undefined).");
+  } else {
+      console.log(`✅ Token detectado correctamente. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+  }
+
+  console.log("🔑 Enviando señal de inicio de sesión a Discord...");
   client.login(process.env.TOKEN).catch(err => {
-      console.error("💥 ERROR CRÍTICO AL INICIAR SESIÓN EN DISCORD:", err);
+      console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
   });
 });
