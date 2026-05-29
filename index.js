@@ -109,13 +109,13 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-  console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
+  console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno de Render:");
   
-  // Imprime los primeros 5 caracteres del token para comprobar si existe sin exponerlo
+  // Imprime los primeros 5 caracteres del token para comprobar si existe sin exponerlo en los logs públicos
   if (!process.env.TOKEN) {
       console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO (undefined). El bot no tiene credenciales.");
   } else {
-      console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+      console.log(`✅ Token detectado correctamente. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
   }
 
   console.log("🔑 Enviando señal de inicio de sesión a Discord...");
