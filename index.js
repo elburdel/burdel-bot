@@ -27,7 +27,8 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    Events
+    Events,
+    MessageFlags // <-- Sumamos las Flags para la nueva versión de Discord
 } = require('discord.js');
 
 const { CronJob } = require('cron');
@@ -144,7 +145,7 @@ client.once(Events.ClientReady, async () => {
             );
 
             await canalAnuncios.send({
-                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
+                content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
                 components: [fila1, fila2]
             });
             console.log("📌 Botones de salas creados por primera vez.");
@@ -211,13 +212,13 @@ client.on(Events.InteractionCreate, async interaction => {
             const tiempoPasado = ahora - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
                 const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
-                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, ephemeral: true });
+                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: [MessageFlags.Ephemeral] });
                 setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 30000);
                 return;
             }
         }
 
-        cooldowns.set(key, ahora);
+        cooldowns.set(key, trabaja = ahora);
 
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
@@ -229,7 +230,7 @@ client.on(Events.InteractionCreate, async interaction => {
             };
 
             await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, ephemeral: true });
+            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: [MessageFlags.Ephemeral] });
             setTimeout(async () => { try { await interaction.deleteReply(); } catch (err) {} }, 10000);
         } catch (error) {
             console.error(error);
@@ -237,12 +238,12 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // INTERACCIONES DEL PANEL
+    // INTERACCIONES DEL PANEL (Corregido con Formato Flags + DeferReply)
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
+                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
             }
 
             let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
@@ -251,27 +252,32 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
 
-            return await interaction.reply({ content: textoLista, ephemeral: true });
+            return await interaction.reply({ content: textoLista, flags: [MessageFlags.Ephemeral] });
         }
 
         if (interaction.customId === 'admin_agregar_cumple') {
+            // Avisamos a Discord que aguarde un toque usando el nuevo sistema de Flags
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
             const menuUsuarios = new UserSelectMenuBuilder()
                 .setCustomId('select_agregar_usuario')
                 .setPlaceholder('Seleccioná al cumpleañero de la lista...');
 
             const filaMenu = new ActionRowBuilder().addComponents(menuUsuarios);
 
-            return await interaction.reply({
+            return await interaction.editReply({
                 content: "👤 Elegí al chico que querés añadir:",
-                components: [filaMenu],
-                ephemeral: true
+                components: [filaMenu]
             });
         }
 
         if (interaction.customId === 'admin_borrar_cumple') {
             if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", ephemeral: true });
+                return await interaction.reply({ content: "❌ No hay nadie anotado para borrar.", flags: [MessageFlags.Ephemeral] });
             }
+
+            // Avisamos a Discord que aguarde un toque usando el nuevo sistema de Flags
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
             const menuUsuariosBorrar = new UserSelectMenuBuilder()
                 .setCustomId('select_borrar_usuario')
@@ -279,10 +285,9 @@ client.on(Events.InteractionCreate, async interaction => {
 
             const filaMenuBorrar = new ActionRowBuilder().addComponents(menuUsuariosBorrar);
 
-            return await interaction.reply({
+            return await interaction.editReply({
                 content: "🗑️ Seleccioná al chico que querés remover:",
-                components: [filaMenuBorrar],
-                ephemeral: true
+                components: [filaMenuBorrar]
             });
         }
     }
@@ -317,9 +322,9 @@ client.on(Events.InteractionCreate, async interaction => {
             if (baseCumples[usuarioSeleccionado]) {
                 delete baseCumples[usuarioSeleccionado];
                 await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, ephemeral: true });
+                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, flags: [MessageFlags.Ephemeral] });
             } else {
-                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", ephemeral: true });
+                return await interaction.reply({ content: "⚠️ Ese usuario no estaba registrado.", flags: [MessageFlags.Ephemeral] });
             }
         }
     }
@@ -331,11 +336,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const formatoValido = /^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput);
         if (!formatoValido) {
-            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", ephemeral: true });
+            return await interaction.reply({ content: "❌ Formato incorrecto. Ponelo como **DD/MM** (Ejemplo: `04/12`).", flags: [MessageFlags.Ephemeral] });
         }
 
         if (!usuarioGuardado) {
-            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", ephemeral: true });
+            return await interaction.reply({ content: "❌ Error de sesión. Volvé a intentar.", flags: [MessageFlags.Ephemeral] });
         }
 
         baseCumples[usuarioGuardado] = fechaInput;
@@ -345,7 +350,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         return await interaction.reply({
             content: `✅ ¡Espectacular, Seba! Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`,
-            ephemeral: true
+            flags: [MessageFlags.Ephemeral]
         });
     }
 });
