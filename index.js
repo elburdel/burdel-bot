@@ -57,18 +57,12 @@ async function respaldarEnDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
         const mensajes = await canalBD.messages.fetch({ limit: 10 });
-        
         const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
-        for (const msg of mensajesBackup.values()) {
-            await msg.delete().catch(() => {});
-        }
-
+        for (const msg of mensajesBackup.values()) { await msg.delete().catch(() => {}); }
         const textoBackup = '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples);
         await canalBD.send({ content: textoBackup });
         console.log("💾 Datos respaldados con éxito.");
-    } catch (e) {
-        console.error("❌ Error al respaldar:", e);
-    }
+    } catch (e) { console.error("❌ Error al respaldar:", e); }
 }
 
 async function recuperarDesdeDiscord() {
@@ -76,18 +70,15 @@ async function recuperarDesdeDiscord() {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
         const mensajesBD = await canalBD.messages.fetch({ limit: 5 });
         const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
-        
         if (backupNuevo) {
             const jsonTexto = backupNuevo.content.replace('||DB_CUMPLES_DATA||', '');
             baseCumples = JSON.parse(jsonTexto);
             console.log("🧠 Memoria restaurada. Registros:", Object.keys(baseCumples).length);
             return;
         }
-
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
         const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
-
         if (backupViejo) {
             const jsonTextoViejo = backupViejo.content.replace('||BACKUP_CUMPLES||', '');
             baseCumples = JSON.parse(jsonTextoViejo);
@@ -104,182 +95,13 @@ async function recuperarDesdeDiscord() {
 }
 
 client.once(Events.ClientReady, async () => {
-    // DIAGNÓSTICO EN CONSOLA FORZADO AL ARRANCAR
     console.log("===============================================");
     console.log(`🤖 ¡BOT ONLINE EN DISCORD! Conectado como: ${client.user.tag}`);
-    console.log(`🆔 ID del Bot: ${client.user.id}`);
-    console.log(`🌐 Conectado actualmente a ${client.guilds.cache.size} servidores.`);
-    
-    client.guilds.cache.forEach(guild => {
-        console.log(`   🏠 Servidor detectado: "${guild.name}" (ID: ${guild.id})`);
-    });
     console.log("===============================================");
-
     await recuperarDesdeDiscord().catch(e => console.error("Error cargando memoria:", e));
-
-    // Control de botones de salas protegido
-    try {
-        const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
-        const mensajes = await canalAnuncios.messages.fetch({ limit: 10 }).catch(() => null);
-        
-        if (canalAnuncios && mensajes) {
-            const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
-
-            if (!yaTieneBotones) {
-                const fila1 = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('btn_rojo').setLabel('🔴 EL CUARTO ROJO').setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder().setCustomId('btn_burdel').setLabel('🍻 EL BURDEL').setStyle(ButtonStyle.Primary)
-                );
-
-                const fila2 = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('btn_bubbaloo').setLabel('🍬 BUBBALOO TEAM').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('btn_templo').setLabel('🛕 EL TEMPLO').setStyle(ButtonStyle.Secondary)
-                );
-
-                await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
-                    components: [fila1, fila2]
-                });
-                console.log("📌 Botones de salas creados por primera vez.");
-            } else {
-                console.log("👍 Los botones de salas ya estaban puestos. No se gastó RAM.");
-            }
-        }
-    } catch (error) {
-        console.error("❌ Alerta en canal de botones:", error.message);
-    }
-
-    // Control del panel protegido
-    try {
-        const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
-        const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 }).catch(() => null);
-
-        if (canalPanel && mensajesPanel) {
-            const yaTienePanel = mensajesPanel.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE CONTROL GENERAL"));
-
-            if (!yaTienePanel) {
-                const filaControl = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('admin_ver_cumples').setLabel('🔵 VER CUMPLEAÑOS').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('admin_agregar_cumple').setLabel('🟢 AGREGAR CUMPLE').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('admin_borrar_cumple').setLabel('🔴 BORRAR CUMPLE').setStyle(ButtonStyle.Danger)
-                );
-
-                await canalPanel.send({
-                    content: '🛠️ **PANEL DE CONTROL GENERAL DEL BOT** 🛠️\nManejá los cumpleaños de los chicos usando los botones interactivos de abajo.',
-                    components: [filaControl]
-                });
-                console.log("📌 Panel de control inicializado por primera vez.");
-            } else {
-                console.log("👍 El panel de control ya estaba activo. No se gastó RAM.");
-            }
-        }
-    } catch (error) {
-        console.error("❌ Alerta en canal de panel de control:", error.message);
-    }
-
-    // CronJob de cumpleaños
-    try {
-        new CronJob('0 0 0 * * *', async () => {
-            const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
-            const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL).catch(() => null);
-            
-            if (canalDestino) {
-                for (const [userId, fecha] of Object.entries(baseCumples)) {
-                    if (fecha === hoy) {
-                        const fraseElegida = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
-                        const mensajeFinal = fraseElegida.replace('<@USER>', `<@${userId}>`);
-                        await canalDestino.send(mensajeFinal);
-                    }
-                }
-            }
-        }, null, true, 'America/Argentina/Buenos_Aires');
-    } catch(err) {
-        console.error("❌ Error al armar el CronJob:", err);
-    }
 });
 
-const adminCache = new Map();
-
-client.on(Events.InteractionCreate, async interaction => {
-    // (Mantiene todo el sistema interactivo intacto)
-    if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
-        let salaKey = interaction.customId.replace('btn_', '');
-        if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
-        const key = `${interaction.user.id}_${salaKey}`;
-        const ahora = Date.now();
-        if (cooldowns.has(key)) {
-            const tiempoPasado = ahora - cooldowns.get(key);
-            if (tiempoPasado < COOLDOWN_TIEMPO) {
-                const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
-                await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, ephemeral: true });
-                return;
-            }
-        }
-        cooldowns.set(key, ahora);
-        try {
-            const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
-            const mensajes = {
-                rojo: `🔴 ${interaction.user.username} abrió El Cuarto Rojo\n\n🔥 Entren acá:\n${links.rojo}`,
-                burdel: `🔥 ${interaction.user.username} abrió El Burdel\n\n🍻 Caigan:\n${links.burdel}`,
-                bubbaloo: `🍬 ${interaction.user.username} abrió Bubbaloo Team\n\n✨ Entren:\n${links.bubbaloo}`,
-                templo: `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.templo}`
-            };
-            await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, ephemeral: true });
-        } catch (error) { console.error(error); }
-        return;
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
-        if (interaction.customId === 'admin_ver_cumples') {
-            if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", ephemeral: true });
-            let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
-            for (const [userId, fecha] of Object.entries(baseCumples)) { textoLista += `• <@${userId}> ➔ **${fecha}**\n`; }
-            textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
-            return await interaction.reply({ content: textoLista, ephemeral: true });
-        }
-        if (interaction.customId === 'admin_agregar_cumple') {
-            await interaction.deferReply({ ephemeral: true });
-            const menuUsuarios = new UserSelectMenuBuilder().setCustomId('select_agregar_usuario').setPlaceholder('Seleccioná al cumpleañero...');
-            return await interaction.editReply({ content: "👤 Elegí al chico:", components: [new ActionRowBuilder().addComponents(menuUsuarios)] });
-        }
-        if (interaction.customId === 'admin_borrar_cumple') {
-            if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "❌ No hay nadie anotado.", ephemeral: true });
-            await interaction.deferReply({ ephemeral: true });
-            const menuUsuariosBorrar = new UserSelectMenuBuilder().setCustomId('select_borrar_usuario').setPlaceholder('Seleccioná a quién eliminar...');
-            return await interaction.editReply({ content: "🗑️ Seleccioná al chico:", components: [new ActionRowBuilder().addComponents(menuUsuariosBorrar)] });
-        }
-    }
-
-    if (interaction.isUserSelectMenu()) {
-        const usuarioSeleccionado = interaction.values[0];
-        if (interaction.customId === 'select_agregar_usuario') {
-            adminCache.set(interaction.user.id, usuarioSeleccionado);
-            const modal = new ModalBuilder().setCustomId('modal_fecha_cumple').setTitle('Fecha de Cumpleaños');
-            const entradaFecha = new TextInputBuilder().setCustomId('input_fecha').setLabel('¿Qué día cumple? (DD/MM)').setPlaceholder('Ejemplo: 15/08').setStyle(TextInputStyle.Short).setMinLength(5).setMaxLength(5).setRequired(true);
-            return await interaction.showModal(modal.addComponents(new ActionRowBuilder().addComponents(entradaFecha)));
-        }
-        if (interaction.customId === 'select_borrar_usuario') {
-            if (baseCumples[usuarioSeleccionado]) {
-                delete baseCumples[usuarioSeleccionado];
-                await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, ephemeral: true });
-            } else { return await interaction.reply({ content: "⚠️ No estaba registrado.", ephemeral: true }); }
-        }
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
-        const fechaInput = interaction.fields.getTextInputValue('input_fecha');
-        const usuarioGuardado = adminCache.get(interaction.user.id);
-        if (!/^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput)) return await interaction.reply({ content: "❌ Formato incorrecto. Usá DD/MM.", ephemeral: true });
-        if (!usuarioGuardado) return await interaction.reply({ content: "❌ Error de sesión.", ephemeral: true });
-        baseCumples[usuarioGuardado] = fechaInput;
-        adminCache.delete(interaction.user.id);
-        await respaldarEnDiscord();
-        return await interaction.reply({ content: `✅ Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`, ephemeral: true });
-    }
-});
-
+// Servidor HTTP básico para Render
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end("Bot online");
@@ -287,9 +109,17 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-  console.log("🔑 Red de Render validada. Conectando el cliente a Discord ahora...");
+  console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
   
+  // Imprime los primeros 5 caracteres del token para comprobar si existe sin exponerlo
+  if (!process.env.TOKEN) {
+      console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO (undefined). El bot no tiene credenciales.");
+  } else {
+      console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+  }
+
+  console.log("🔑 Enviando señal de inicio de sesión a Discord...");
   client.login(process.env.TOKEN).catch(err => {
-      console.error("💥 ERROR CRÍTICO AL INICIAR SESIÓN EN DISCORD:", err);
+      console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
   });
 });
