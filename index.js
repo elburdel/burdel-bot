@@ -12,7 +12,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     Events,
-    MessageFlags // Importamos las flags para evitar la advertencia de deprecación
+    MessageFlags
 } = require('discord.js');
 
 const { CronJob } = require('cron');
@@ -24,7 +24,8 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.MessageContent // Habilitado para poder leer el texto de los links compartidos
     ]
 });
 
@@ -101,7 +102,6 @@ client.once(Events.ClientReady, async () => {
     console.log("===============================================");
     await recuperarDesdeDiscord().catch(e => console.error("Error cargando memoria:", e));
 
-    // Control de botones de salas protegido
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 }).catch(() => null);
@@ -121,17 +121,14 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
-            } else {
-                console.log("👍 Los botones de salas ya estaban puestos.");
-            }
+            } else { console.log("👍 Los botones de salas ya estaban puestos."); }
         }
     } catch (error) { console.error("❌ Alerta en canal de botones:", error.message); }
 
-    // Control del panel protegido
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 }).catch(() => null);
@@ -151,13 +148,10 @@ client.once(Events.ClientReady, async () => {
                     components: [filaControl]
                 });
                 console.log("📌 Panel de control inicializado por primera vez.");
-            } else {
-                console.log("👍 El panel de control ya estaba activo.");
-            }
+            } else { console.log("👍 El panel de control ya estaba activo."); }
         }
     } catch (error) { console.error("❌ Alerta en canal de panel de control:", error.message); }
 
-    // CronJob de cumpleaños
     try {
         new CronJob('0 0 0 * * *', async () => {
             const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
@@ -179,7 +173,6 @@ client.once(Events.ClientReady, async () => {
 const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
-    // BOTONES DE ANUNCIOS DE SALAS
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
@@ -197,10 +190,10 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
             const mensajes = {
-                rojo: `🔴 ${interaction.user.username} abrió El Cuarto Rojo\n\n🔥 Entren acá:\n${links.links.rojo || links.rojo}`,
-                burdel: `🔥 ${interaction.user.username} abrió El Burdel\n\n🍻 Caigan:\n${links.links.burdel || links.burdel}`,
-                bubbaloo: `🍬 ${interaction.user.username} abrió Bubbaloo Team\n\n✨ Entren:\n${links.links.bubbaloo || links.bubbaloo}`,
-                templo: `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.links.templo || links.templo}`
+                rojo: `🔴 ${interaction.user.username} abrió El Cuarto Rojo\n\n🔥 Entren acá:\n${links.rojo}`,
+                burdel: `🔥 ${interaction.user.username} abrió El Burdel\n\n🍻 Caigan:\n${links.burdel}`,
+                bubbaloo: `🍬 ${interaction.user.username} abrió Bubbaloo Team\n\n✨ Entren:\n${links.bubbaloo}`,
+                templo: `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.templo}`
             };
             await canalPrincipal.send(mensajes[salaKey]);
             await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: [MessageFlags.Ephemeral] });
@@ -208,7 +201,6 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
-    // BOTONES DEL PANEL ADMINISTRATIVO
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
@@ -230,7 +222,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // SELECT MENUS
     if (interaction.isUserSelectMenu()) {
         const usuarioSeleccionado = interaction.values[0];
         if (interaction.customId === 'select_agregar_usuario') {
@@ -248,7 +239,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // SUBMIT MODAL
     if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
         const fechaInput = interaction.fields.getTextInputValue('input_fecha');
         const usuarioGuardado = adminCache.get(interaction.user.id);
@@ -258,6 +248,46 @@ client.on(Events.InteractionCreate, async interaction => {
         adminCache.delete(interaction.user.id);
         await respaldarEnDiscord();
         return await interaction.reply({ content: `✅ Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`, flags: [MessageFlags.Ephemeral] });
+    }
+});
+
+// ==========================================
+// NUEVO: DETECTOR Y CONVERSOR DE LINKS (INSTAGRAM / TIKTOK)
+// ==========================================
+client.on(Events.MessageCreate, async message => {
+    // Ignoramos mensajes del propio bot
+    if (message.author.bot) return;
+
+    let contenido = message.content;
+    let modificado = false;
+
+    // Expresiones regulares para agarrar links de Instagram y TikTok
+    const regexIns = /(https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv)\/[A-Za-z0-9_-]+)/gi;
+    const regexTik = /(https?:\/\/(?:vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+)/gi;
+
+    // Reemplazo para que se reproduzcan nativamente dentro de Discord sin descargar nada en Render
+    if (regexIns.test(contenido)) {
+        contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
+        modificado = true;
+    }
+    if (regexTik.test(contenido)) {
+        contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
+        modificado = true;
+    }
+
+    // Si el mensaje contenía algún link de estas redes, hacemos el cambiazo mágico
+    if (modificado) {
+        try {
+            // Borramos el link feo original
+            await message.delete().catch(() => {});
+            
+            // Mandamos el reproductor nativo aclarando quién lo mandó
+            await message.channel.send({
+                content: `👤 **Compartido por:** <@${message.author.id}>\n\n${contenido}`
+            });
+        } catch (err) {
+            console.error("❌ Error en el conversor de links:", err.message);
+        }
     }
 });
 
