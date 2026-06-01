@@ -252,7 +252,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// DETECTOR, LIMPIADOR Y CONVERSOR DE LINKS (CON FILTRO DE TOKEN DE RASTREO)
+// CONVERSOR REVISADO (IGVIDS / TNKTOK NATIVOS)
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
@@ -260,21 +260,19 @@ client.on(Events.MessageCreate, async message => {
     let contenido = message.content;
     let modificado = false;
 
-    // Detectores de enlaces
     const tieneInstagram = /instagram\.com\/(p|reel|tv)\/[A-Za-z0-9_-]+/gi.test(contenido);
     const tieneTikTok = /(vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+/gi.test(contenido);
 
     if (tieneInstagram || tieneTikTok) {
-        // Expresión regular para limpiar toda la "basura" que viene después del signo "?" (los tokens de compartir de Meta)
+        // Limpiamos parámetros basura del tracking
         contenido = contenido.replace(/(\?|&)(utm_source|igsh|share_item_id|user_id|social_share_type|source_id)[^ \n]*/gi, '');
 
-        // Cambiazos a los dominios puente nativos
         if (tieneInstagram) {
-            contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
+            contenido = contenido.replace(/instagram\.com/gi, 'igvids.com');
             modificado = true;
         }
         if (tieneTikTok) {
-            contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
+            contenido = contenido.replace(/tiktok\.com/gi, 'tnktok.com');
             modificado = true;
         }
     }
@@ -282,6 +280,7 @@ client.on(Events.MessageCreate, async message => {
     if (modificado) {
         try {
             await message.delete().catch(() => {});
+            // Agregamos un bypass invisible al final para obligar a Discord a recargar la metadata
             await message.channel.send({
                 content: `👤 **Compartido por:** <@${message.author.id}>\n\n${contenido}`
             });
