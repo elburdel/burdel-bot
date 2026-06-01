@@ -252,7 +252,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// CONVERSOR REVISADO (IGVIDS / TNKTOK NATIVOS)
+// CONVERSOR INYECTADO CON FORMATO EMBEDDED
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
@@ -264,15 +264,15 @@ client.on(Events.MessageCreate, async message => {
     const tieneTikTok = /(vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+/gi.test(contenido);
 
     if (tieneInstagram || tieneTikTok) {
-        // Limpiamos parámetros basura del tracking
+        // Poda total de tokens de rastreo
         contenido = contenido.replace(/(\?|&)(utm_source|igsh|share_item_id|user_id|social_share_type|source_id)[^ \n]*/gi, '');
 
         if (tieneInstagram) {
-            contenido = contenido.replace(/instagram\.com/gi, 'igvids.com');
+            contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
             modificado = true;
         }
         if (tieneTikTok) {
-            contenido = contenido.replace(/tiktok\.com/gi, 'tnktok.com');
+            contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
             modificado = true;
         }
     }
@@ -280,9 +280,10 @@ client.on(Events.MessageCreate, async message => {
     if (modificado) {
         try {
             await message.delete().catch(() => {});
-            // Agregamos un bypass invisible al final para obligar a Discord a recargar la metadata
+            
+            // Enviamos un texto decorado arriba del link para forzar a Discord a recargar e interpretar la ventana interactiva
             await message.channel.send({
-                content: `👤 **Compartido por:** <@${message.author.id}>\n\n${contenido}`
+                content: `👤 **Compartido por:** <@${message.author.id}>\n🎬 **Mirá el video acá abajo:**\n${contenido}`
             });
         } catch (err) {
             console.error("❌ Error en el conversor de links:", err.message);
