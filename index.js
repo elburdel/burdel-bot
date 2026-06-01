@@ -1,5 +1,6 @@
 const http = require('http');
 require('dotenv').config();
+const axios = require('axios'); // <-- Nueva librería para descargar
 
 const {
     Client,
@@ -12,7 +13,8 @@ const {
     TextInputBuilder,
     TextInputStyle,
     Events,
-    MessageFlags
+    MessageFlags,
+    AttachmentBuilder // <-- Necesario para subir archivos
 } = require('discord.js');
 
 const { CronJob } = require('cron');
@@ -179,7 +181,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const key = `${interaction.user.id}_${salaKey}`;
         const ahora = Date.now();
         if (cooldowns.has(key)) {
-            const tiempoPasado = ahora - cooldowns.get(key);
+            const tiempoPasado = telemetry - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
                 const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
                 await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: [MessageFlags.Ephemeral] });
@@ -251,43 +253,67 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// ==========================================
-// CONVERSOR INYECTADO CON FORMATO EMBEDDED
-// ==========================================
+// ===================================================
+// MOTOR ANIKILADOR DE LINKS: DESCARGA Y SUBIDA DIRECTA
+// ===================================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
-    let contenido = message.content;
-    let modificado = false;
+    const contenido = message.content;
+    const urlRegex = /(https?:\/\/(?:www\.)?(?:instagram\.com|tiktok\.com)\/[^\s]+)/gi;
+    const match = contenido.match(urlRegex);
 
-    const tieneInstagram = /instagram\.com\/(p|reel|tv)\/[A-Za-z0-9_-]+/gi.test(contenido);
-    const tieneTikTok = /(vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+/gi.test(contenido);
+    if (!match) return;
 
-    if (tieneInstagram || tieneTikTok) {
-        // Poda total de tokens de rastreo
-        contenido = contenido.replace(/(\?|&)(utm_source|igsh|share_item_id|user_id|social_share_type|source_id)[^ \n]*/gi, '');
+    const linkOriginal = match[0];
+    
+    try {
+        // Le avisamos a los chicos que el bot está procesando el video
+        const mensajeCargando = await message.channel.send(`⏳ Descargando video para <@${message.author.id}>...`);
+        
+        // Borramos el link feo original
+        await message.delete().catch(() => {});
 
-        if (tieneInstagram) {
-            contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
-            modificado = true;
-        }
-        if (tieneTikTok) {
-            contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
-            modificado = true;
-        }
-    }
+        // Petición a la API de Cobalt para extraer el archivo mp4 directo
+        const respuestaCobalt = await axios.post('https://api.cobalt.tools/api/json', {
+            url: linkOriginal,
+            vQuality: '720', // Calidad balanceada para no pasarse del límite de Discord
+            isAudioOnly: false
+        }, {
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        });
 
-    if (modificado) {
-        try {
-            await message.delete().catch(() => {});
-            
-            // Enviamos un texto decorado arriba del link para forzar a Discord a recargar e interpretar la ventana interactiva
+        if (respuestaCobalt.data && respuestaCobalt.data.url) {
+            const videoUrl = respuestaCobalt.data.url;
+
+            // Descargamos el archivo binario del video en un Buffer
+            const respuestaVideo = await axios.get(videoUrl, { responseType: 'arraybuffer' });
+            const videoBuffer = Buffer.from(respuestaVideo.data, 'binary');
+
+            // Creamos el adjunto para Discord
+            const adjunto = new AttachmentBuilder(videoBuffer, { name: 'el_burdel_video.mp4' });
+
+            // Subimos el archivo mp4 real
             await message.channel.send({
-                content: `👤 **Compartido por:** <@${message.author.id}>\n🎬 **Mirá el video acá abajo:**\n${contenido}`
+                content: `👤 **Compartido por:** <@${message.author.id}>`,
+                files: [adjunto]
             });
-        } catch (err) {
-            console.error("❌ Error en el conversor de links:", err.message);
+
+            // Borramos el cartelito de carga
+            await mensajeCargando.delete().catch(() => {});
+        } else {
+            throw new Error("No se obtuvo URL de descarga directa.");
         }
+
+    } catch (err) {
+        console.error("❌ Error al descargar video con Cobalt:", err.message);
+        // Si falla por algún motivo (ej. video muy largo), dejamos el link limpio clásico como plan B
+        await message.channel.send({
+            content: `👤 **Compartido por:** <@${message.author.id}>\n🔗 *No se pudo procesar la descarga directa, acá está el link:* ${linkOriginal}`
+        });
     }
 });
 
