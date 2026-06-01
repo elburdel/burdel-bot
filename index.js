@@ -25,7 +25,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.MessageContent // Habilitado para poder leer el texto de los links compartidos
+        GatewayIntentBits.MessageContent 
     ]
 });
 
@@ -252,36 +252,36 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// NUEVO: DETECTOR Y CONVERSOR DE LINKS (INSTAGRAM / TIKTOK)
+// DETECTOR, LIMPIADOR Y CONVERSOR DE LINKS (CON FILTRO DE TOKEN DE RASTREO)
 // ==========================================
 client.on(Events.MessageCreate, async message => {
-    // Ignoramos mensajes del propio bot
     if (message.author.bot) return;
 
     let contenido = message.content;
     let modificado = false;
 
-    // Expresiones regulares para agarrar links de Instagram y TikTok
-    const regexIns = /(https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv)\/[A-Za-z0-9_-]+)/gi;
-    const regexTik = /(https?:\/\/(?:vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+)/gi;
+    // Detectores de enlaces
+    const tieneInstagram = /instagram\.com\/(p|reel|tv)\/[A-Za-z0-9_-]+/gi.test(contenido);
+    const tieneTikTok = /(vm|vt|www)\.tiktok\.com\/[A-Za-z0-9_@/-]+/gi.test(contenido);
 
-    // Reemplazo para que se reproduzcan nativamente dentro de Discord sin descargar nada en Render
-    if (regexIns.test(contenido)) {
-        contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
-        modificado = true;
-    }
-    if (regexTik.test(contenido)) {
-        contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
-        modificado = true;
+    if (tieneInstagram || tieneTikTok) {
+        // Expresión regular para limpiar toda la "basura" que viene después del signo "?" (los tokens de compartir de Meta)
+        contenido = contenido.replace(/(\?|&)(utm_source|igsh|share_item_id|user_id|social_share_type|source_id)[^ \n]*/gi, '');
+
+        // Cambiazos a los dominios puente nativos
+        if (tieneInstagram) {
+            contenido = contenido.replace(/instagram\.com/gi, 'ddinstagram.com');
+            modificado = true;
+        }
+        if (tieneTikTok) {
+            contenido = contenido.replace(/tiktok\.com/gi, 'vxtiktok.com');
+            modificado = true;
+        }
     }
 
-    // Si el mensaje contenía algún link de estas redes, hacemos el cambiazo mágico
     if (modificado) {
         try {
-            // Borramos el link feo original
             await message.delete().catch(() => {});
-            
-            // Mandamos el reproductor nativo aclarando quién lo mandó
             await message.channel.send({
                 content: `👤 **Compartido por:** <@${message.author.id}>\n\n${contenido}`
             });
