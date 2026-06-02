@@ -136,7 +136,7 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
@@ -214,7 +214,9 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        cooldowns.set(key, ahora);
+        cooldowns.set(key, aerospace);
+        const ahoraUnix = Date.now();
+        cooldowns.set(key, ahoraUnix);
 
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
@@ -288,7 +290,7 @@ client.on(Events.InteractionCreate, async interaction => {
             if (baseCumples[usuarioSeleccionado]) {
                 delete baseCumples[usuarioSeleccionado];
                 await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, remobí a <@${usuarioSeleccionado}> de la lista de cumpleaños.`, flags: [MessageFlags.Ephemeral] });
+                return await interaction.reply({ content: `🗑️ Listo Seba, removí a <@${usuarioSeleccionado}> de la lista de cumpleaños.`, flags: [MessageFlags.Ephemeral] });
             } else {
                 return await interaction.reply({ content: "⚠️ El usuario seleccionado no estaba registrado.", flags: [MessageFlags.Ephemeral] });
             }
@@ -316,14 +318,13 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================================
-// INTERCEPTOR DE LINKS CONECTADO AL SERVIDOR DE HUGGING FACE
+// INTERCEPTOR INTELIGENTE: SEPARA REELS/TIKTOK DE FOTOS FIJAS
 // ==========================================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
     const contenido = message.content;
 
-    // Detectamos links de Instagram o TikTok
     const igRegex = /(https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^\s]+)/gi;
     const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+|vt\.tiktok\.com\/[^\s]+))/gi;
 
@@ -332,26 +333,49 @@ client.on(Events.MessageCreate, async message => {
 
     if (!igMatch && !ttMatch) return;
 
-    // Limpiamos parámetros UTM molestos del enlace
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; 
     const esInstagram = !!igMatch;
+
+    // 📸 DETECTAMOS SI ES UNA FOTO FIJA DE INSTAGRAM
+    // Las fotos en IG llevan el formato "/p/XXXX" a diferencia de los "/reel/"
+    if (esInstagram && linkOriginal.toLowerCase().includes('/p/')) {
+        try {
+            // Reemplazamos instagram.com por ddinstagram.com para forzar la visualización en Discord
+            const linkVisualizable = linkOriginal.replace(/instagram\.com/i, 'ddinstagram.com');
+
+            const botonVer = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('📸 Ver en Instagram')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(linkOriginal)
+            );
+
+            // Borramos el link original y mandamos la versión espejo que sí se visualiza al toque
+            await message.delete().catch(() => {});
+            await message.channel.send({
+                content: `📸 **${message.author.displayName}** compartió una foto:\n${linkVisualizable}`,
+                components: [botonVer]
+            });
+            console.log(`🖼️ Foto de IG procesada con DDInstagram para ${message.author.username}`);
+        } catch (err) {
+            console.error("❌ Falló el reemplazo de la foto:", err.message);
+        }
+        return; // Cortamos acá para que no intente mandarlo a Hugging Face
+    }
+
+    // 📹 SI ES UN VIDEO (REEL O TIKTOK), VA DIRECTO AL COMPRESOR HUGGING FACE
     let msgCargando;
     
     try {
-        // Ponemos el aviso de carga temporal
         msgCargando = await message.channel.send(`⏳ Procesando y optimizando video de <@${message.author.id}>... (Si el motor dormía, puede tardar unos segundos)`);
-        
-        // Borramos el posteo original para limpiar el chat
         await message.delete().catch(() => {});
 
-        // Mandamos el link a la máquina potente de Hugging Face para que lo descargue y baje la resolución
         const respuestaHF = await axios.post(URL_COMPRESOR, {
             videoUrl: linkOriginal
         }, {
-            timeout: 50000 // Le damos 50 segundos de margen por si el servidor se está despertando
+            timeout: 50000 
         });
 
-        // Armamos el botón para ver el original por las dudas
         const botonVer = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
@@ -360,18 +384,15 @@ client.on(Events.MessageCreate, async message => {
         );
 
         if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
-            // Re-convertimos la respuesta binaria comprimida que nos mandó Hugging Face
             const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
             const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video.mp4' });
 
-            // Subimos el archivo mp4 liviano directo a Discord con su botón
             await message.channel.send({
                 content: `Anuncio de video subido para **${message.author.displayName}**:`,
                 files: [adjunto],
                 components: [botonVer]
             });
 
-            // Borramos el aviso de carga
             if (msgCargando) await msgCargando.delete().catch(() => {});
             console.log(`✅ Video procesado por Hugging Face y subido para ${message.author.username}`);
         } else {
@@ -381,7 +402,6 @@ client.on(Events.MessageCreate, async message => {
     } catch (err) {
         console.error("❌ Falló el procesamiento en Hugging Face:", err.message);
         
-        // PLAN B SEGURO: Si Hugging Face da error o tarda mucho, borra la carga y te deja el link limpio con botón
         if (msgCargando) {
             await msgCargando.delete().catch(() => {});
         }
