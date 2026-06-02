@@ -43,7 +43,7 @@ let baseCumples = {};
 
 const mensajesCumple = [
     "¡Hoy se toma fuerte! 🍻 Feliz cumpleaños <@USER>, que pases una noche tremenda en El Burdel. 🎉",
-    "💥 ¡Atención comunidad! Hoy es el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
+    "💥 ¡Atención comunidad! Hoy is el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
     "🎂 ¡Feliz cumple <@USER>! Que arranques el día espectacular. Te mandamos un abrazo gigante de parte de toda la banda. 🎈",
     "🥳 ¡Felicidades <@USER>! Un año más viejo pero más fanchero. Que explote ese festejo hoy. 💥🥂",
     "✨ Que las narguilas y los brindis no falten hoy. ¡Muy feliz cumpleaños <@USER>! Pasala de diez loco. 🛕🔥"
@@ -125,7 +125,7 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
@@ -389,13 +389,12 @@ async function descargarConRapidAPI(url, esInstagram) {
             responseType: 'arraybuffer',
             timeout: 25000,
             maxContentLength: LIMITE_DISCORD,
-            maxBodyLength: LIMITE_DISCORD // Forzamos a Axios a frenar en seco bajo cualquier métrica de peso
+            maxBodyLength: LIMITE_DISCORD
         });
 
         return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
-        // 🧠 Capturamos tanto maxContentLength como maxBodyLength de Axios
         if (err.message && (err.message.includes('maxContentLength') || err.message.includes('maxBodyLength'))) {
             console.log(`⚠️ [ALERTA DE TAMAÑO] El video supera los 9MB de buffer. Saltando a Hugging Face.`);
             return { tipo: 'muy_grande' };
@@ -452,14 +451,6 @@ async function descargarIGv2(url) {
     }
 }
 
-function generarLinkFallback(url, esInstagram) {
-    if (esInstagram) {
-        return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
-    } else {
-        return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
-    }
-}
-
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
@@ -476,7 +467,6 @@ client.on(Events.MessageCreate, async message => {
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
     const esInstagram = !!igMatch;
 
-    // 🔍 LOG DE DISPARO: Confirmamos que el bot leyó el link
     console.log(`📡 [LINK DETECTADO] El usuario ${message.author.username} envió: ${linkOriginal} (${esInstagram ? 'Instagram' : 'TikTok'})`);
 
     await message.delete().catch(() => {});
@@ -487,7 +477,7 @@ client.on(Events.MessageCreate, async message => {
 
     try {
         console.log(`⚡ Iniciando flujo de descarga...`);
-        const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
+        let resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
         console.log(`📦 Estado del resultado final del Downloader:`, resultado ? resultado.tipo : 'null');
 
         const botonVer = (esIG) => new ActionRowBuilder().addComponents(
@@ -528,7 +518,7 @@ client.on(Events.MessageCreate, async message => {
             await msgCargando.delete().catch(() => {});
         }
 
-        // 🚨 AQUÍ CONECTAMOS HUGGING FACE ÚNICAMENTE SI EL VIDEO ES MUY GRANDE 🚨
+        // 🚨 CASO A: EL VIDEO ESTÁ PERO ES MUY GRANDE
         if (resultado?.tipo === 'muy_grande') {
             await msgCargando.edit(`⏳ El video es muy pesado. Comprimiendo en Hugging Face para Discord...`);
             console.log(`🚀 [HUGGING FACE] Enviando solicitud de compresión remota para: ${linkOriginal}`);
@@ -553,13 +543,6 @@ client.on(Events.MessageCreate, async message => {
                 }
             } catch (err) {
                 console.error("❌ Falló el compresor de Hugging Face:", err.message);
-                const labelRed = esInstagram ? 'Instagram' : 'TikTok';
-                const emojiRed = esInstagram ? '📸' : '🎵';
-                await msgCargando.edit({
-                    content: `${emojiRed} **${message.author.displayName}** compartió un video de ${labelRed} (muy pesado para subir):`,
-                    components: [botonVer(esInstagram)]
-                });
-                return;
             }
         }
 
@@ -577,10 +560,6 @@ client.on(Events.MessageCreate, async message => {
             console.log(`🔄 Intento secundario con descargarIGv2...`);
             const resultado2 = await descargarIGv2(linkOriginal);
 
-            if (resultado2?.tipo === 'privada') {
-                await msgCargando.edit({ content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.` });
-                return;
-            }
             if (resultado2?.tipo === 'video') {
                 await enviarConBoton('video', resultado2);
                 return;
@@ -591,8 +570,33 @@ client.on(Events.MessageCreate, async message => {
             }
         }
 
-        console.log(`⚠️ Flujo finalizado sin buffer. Enviando botón de redirección básico.`);
-        await new Promise(r => setTimeout(r, 1500));
+        // 🚨 CASO B [PLAN DE RESCATE]: RAPIDAPI DIO NULL O NOT_FOUND
+        // En lugar de rendirnos, le tiramos el link directo a Hugging Face para que Cobalt intente extraerlo.
+        console.log(`🔄 [RESCATE HF] RapidAPI no detectó contenido. Invocando extracción directa en Hugging Face...`);
+        await msgCargando.edit(`⏳ RapidAPI no pudo leer el enlace. Intentando rescate mediante el servidor auxiliar...`);
+        
+        try {
+            const respuestaHF = await axios.post(URL_COMPRESOR, { videoUrl: linkOriginal }, { timeout: 80000 });
+            
+            if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
+                console.log(`📥 [RESCATE ÉXITO] Recibido Base64 desde el motor Cobalt de Hugging Face.`);
+                const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
+                const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video_rescatado.mp4' });
+                
+                await message.channel.send({
+                    content: `📹 **${message.author.displayName}** compartió un video (extraído vía HuggingFace):`,
+                    files: [adjunto],
+                    components: [botonVer(esInstagram)]
+                });
+                await msgCargando.delete().catch(() => {});
+                return;
+            }
+        } catch (hfErr) {
+            console.error("❌ El plan de rescate de Hugging Face también falló:", hfErr.message);
+        }
+
+        // Si fallaron absolutamente todos los motores, recién ahí ponemos el botón clásico
+        console.log(`⚠️ Flujo finalizado sin buffer en ningún motor. Enviando redirección básica.`);
         const labelRed = esInstagram ? 'Instagram' : 'TikTok';
         const emojiRed = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
