@@ -267,6 +267,12 @@ function extraerShortcodeIG(url) {
     console.log('⚠️ No se pudo extraer shortcode IG de:', url);
     return null;
 }
+
+    if (match) return match[1];
+
+    console.log('⚠️ No se pudo extraer shortcode IG de:', url);
+    return null;
+}
     if (match) return match[1];
 
     console.log('⚠️ No se pudo extraer shortcode IG de:', url);
