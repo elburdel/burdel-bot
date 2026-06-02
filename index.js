@@ -316,10 +316,9 @@ async function descargarConRapidAPI(url, esInstagram) {
             }
             if (data?.metadata) console.log("🔍 metadata:", JSON.stringify(data.metadata).substring(0, 300));
 
-            // Detectar cuenta privada
+            // Detectar cuenta privada - solo si la API lo dice explicitamente
             const esPrivada = data?.metadata?.is_private === true
-                || data?.error?.toString().toLowerCase().includes('private')
-                || (data?.contents?.length === 0 && data?.metadata?.is_private !== false);
+                || data?.error?.toString().toLowerCase().includes('private');
 
             if (esPrivada) {
                 console.log("🔒 RapidAPI IG: cuenta privada");
@@ -327,6 +326,12 @@ async function descargarConRapidAPI(url, esInstagram) {
             }
 
             const c0 = data?.contents?.[0];
+
+            // Si contents vacio pero metadata tiene thumbnailUrl, usar esa imagen
+            if (!c0 && data?.metadata?.thumbnailUrl) {
+                console.log('\u2705 RapidAPI IG: imagen en metadata.thumbnailUrl');
+                return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
+            }
 
             // Video
             if (c0?.videos?.[0]?.url) {
@@ -386,10 +391,11 @@ async function descargarConRapidAPI(url, esInstagram) {
                 return null;
             }
 
+            console.log('🔍 TikTok videoId a enviar:', videoId);
             const resp = await axios.get(
                 'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
                 {
-                    params: { videoId },
+                    params: { videoId, id: videoId, url: urlFinal },
                     headers: {
                         'x-rapidapi-key': RAPIDAPI_KEY,
                         'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
