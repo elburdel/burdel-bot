@@ -306,13 +306,13 @@ async function descargarConRapidAPI(url, esInstagram) {
             const c0 = data?.contents?.[0];
 
             if (!c0 && data?.metadata?.thumbnailUrl) {
-                console.log('\u2705 RapidAPI IG: imagen en metadata.thumbnailUrl');
+                console.log('✅ RapidAPI IG: imagen en metadata.thumbnailUrl');
                 return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
             }
 
             if (c0?.videos?.[0]?.url) {
                 videoUrl = c0.videos[0].url;
-                console.log(`✅ RapidAPI IG: video encontrado (${c0.videos[0].label})`);
+                console.log(`✅ RapidAPI IG: link de video obtenido -> ${videoUrl.substring(0, 50)}...`);
             } else if (c0?.images?.[0]?.url) {
                 return { tipo: 'imagen', url: c0.images[0].url };
             } else if (c0?.display_url) {
@@ -377,24 +377,30 @@ async function descargarConRapidAPI(url, esInstagram) {
             } else if (data?.data?.play) {
                 videoUrl = data.data.play;
             }
+            if (videoUrl) console.log(`✅ RapidAPI TikTok: link de video obtenido -> ${videoUrl.substring(0, 50)}...`);
         }
 
         if (!videoUrl) return null;
 
         const LIMITE_DISCORD = 9 * 1024 * 1024;
+        console.log(`📥 Intentando descargar buffer del video... (Límite: 9MB)`);
+        
         const videoResp = await axios.get(videoUrl, {
             responseType: 'arraybuffer',
             timeout: 25000,
-            maxContentLength: LIMITE_DISCORD
+            maxContentLength: LIMITE_DISCORD,
+            maxBodyLength: LIMITE_DISCORD // Forzamos a Axios a frenar en seco bajo cualquier métrica de peso
         });
 
         return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
-        if (err.message && err.message.includes('maxContentLength')) {
-            console.log(`⚠️ Video demasiado grande para descargar`);
+        // 🧠 Capturamos tanto maxContentLength como maxBodyLength de Axios
+        if (err.message && (err.message.includes('maxContentLength') || err.message.includes('maxBodyLength'))) {
+            console.log(`⚠️ [ALERTA DE TAMAÑO] El video supera los 9MB de buffer. Saltando a Hugging Face.`);
             return { tipo: 'muy_grande' };
         }
+        console.error("❌ Error controlado en descargarConRapidAPI:", err.message);
         return null;
     }
 }
@@ -429,7 +435,7 @@ async function descargarIGv2(url) {
 
         if (c0?.videos?.[0]?.url) {
             const videoResp2 = await axios.get(c0.videos[0].url, {
-                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024
+                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024, maxBodyLength: 9 * 1024 * 1024
             });
             return { tipo: 'video', buffer: Buffer.from(videoResp2.data) };
         } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
@@ -470,6 +476,9 @@ client.on(Events.MessageCreate, async message => {
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
     const esInstagram = !!igMatch;
 
+    // 🔍 LOG DE DISPARO: Confirmamos que el bot leyó el link
+    console.log(`📡 [LINK DETECTADO] El usuario ${message.author.username} envió: ${linkOriginal} (${esInstagram ? 'Instagram' : 'TikTok'})`);
+
     await message.delete().catch(() => {});
 
     const msgCargando = await message.channel.send(
@@ -477,7 +486,9 @@ client.on(Events.MessageCreate, async message => {
     );
 
     try {
+        console.log(`⚡ Iniciando flujo de descarga...`);
         const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
+        console.log(`📦 Estado del resultado final del Downloader:`, resultado ? resultado.tipo : 'null');
 
         const botonVer = (esIG) => new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -487,6 +498,7 @@ client.on(Events.MessageCreate, async message => {
         );
 
         if (resultado?.tipo === 'privada') {
+            console.log(`🔒 Cuenta privada. Cortando flujo.`);
             await msgCargando.edit({
                 content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.`
             });
@@ -495,6 +507,7 @@ client.on(Events.MessageCreate, async message => {
 
         async function enviarConBoton(tipo, datos) {
             if (tipo === 'video') {
+                console.log(`📤 Subiendo video normal (<9MB) a Discord...`);
                 const adjunto = new AttachmentBuilder(datos.buffer, { name: 'burdel_video.mp4' });
                 await message.channel.send({
                     content: `📹 **${message.author.displayName}** compartió un video:`,
@@ -502,6 +515,7 @@ client.on(Events.MessageCreate, async message => {
                     components: [botonVer(esInstagram)]
                 });
             } else {
+                console.log(`📤 Subiendo imagen extraída a Discord...`);
                 const imgResp = await axios.get(datos.url, { responseType: 'arraybuffer', timeout: 15000 });
                 const ext = datos.url.includes('.png') ? 'png' : 'jpg';
                 const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
@@ -517,13 +531,15 @@ client.on(Events.MessageCreate, async message => {
         // 🚨 AQUÍ CONECTAMOS HUGGING FACE ÚNICAMENTE SI EL VIDEO ES MUY GRANDE 🚨
         if (resultado?.tipo === 'muy_grande') {
             await msgCargando.edit(`⏳ El video es muy pesado. Comprimiendo en Hugging Face para Discord...`);
-            console.log(`🚀 Enviando video pesado a Hugging Face para: ${message.author.username}`);
+            console.log(`🚀 [HUGGING FACE] Enviando solicitud de compresión remota para: ${linkOriginal}`);
             try {
                 const respuestaHF = await axios.post(URL_COMPRESOR, { videoUrl: linkOriginal }, { timeout: 80000 });
                 
                 if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
+                    console.log(`📥 Recibido Base64 de Hugging Face. Convirtiendo a buffer...`);
                     const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
                     const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video_comprimido.mp4' });
+                    
                     await message.channel.send({
                         content: `📹 **${message.author.displayName}** compartió un video (optimizado por HuggingFace):`,
                         files: [adjunto],
@@ -537,7 +553,6 @@ client.on(Events.MessageCreate, async message => {
                 }
             } catch (err) {
                 console.error("❌ Falló el compresor de Hugging Face:", err.message);
-                // Si HF tira error o timeout, aplicamos tu fallback clásico de botón para que no se rompa nada
                 const labelRed = esInstagram ? 'Instagram' : 'TikTok';
                 const emojiRed = esInstagram ? '📸' : '🎵';
                 await msgCargando.edit({
@@ -559,6 +574,7 @@ client.on(Events.MessageCreate, async message => {
         }
 
         if (esInstagram && resultado?.tipo === 'not_found_v3') {
+            console.log(`🔄 Intento secundario con descargarIGv2...`);
             const resultado2 = await descargarIGv2(linkOriginal);
 
             if (resultado2?.tipo === 'privada') {
@@ -575,6 +591,7 @@ client.on(Events.MessageCreate, async message => {
             }
         }
 
+        console.log(`⚠️ Flujo finalizado sin buffer. Enviando botón de redirección básico.`);
         await new Promise(r => setTimeout(r, 1500));
         const labelRed = esInstagram ? 'Instagram' : 'TikTok';
         const emojiRed = esInstagram ? '📸' : '🎵';
@@ -584,7 +601,7 @@ client.on(Events.MessageCreate, async message => {
         });
 
     } catch (err) {
-        console.error("❌ Error total en motor de videos:", err.message);
+        console.error("❌ Error crítico en motor de videos:", err.message);
         await msgCargando.edit({
             content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
         }).catch(() => {});
