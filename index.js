@@ -439,7 +439,7 @@ async function descargarConRapidAPI(url, esInstagram) {
 }
 
 // ===================================================
-// CAPA 1b: SEGUNDO INTENTO IG — endpoint v2 (acepta URL completa)
+// CAPA 1b: SEGUNDO INTENTO IG — mismo endpoint v3 pero con URL completa en vez de shortcode
 // ===================================================
 
 async function descargarIGv2(url) {
@@ -448,9 +448,9 @@ async function descargarIGv2(url) {
 
     try {
         const resp = await axios.get(
-            'https://social-media-video-downloader.p.rapidapi.com/instagram/v2/media/by/url',
+            'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
             {
-                params: { url },
+                params: { url, renderableFormats: '720p,highres' },
                 headers: {
                     'x-rapidapi-key': RAPIDAPI_KEY,
                     'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
@@ -461,7 +461,7 @@ async function descargarIGv2(url) {
         );
 
         const data = resp.data;
-        console.log("🔍 RapidAPI IG v2 — root keys:", JSON.stringify(Object.keys(data)));
+        console.log("🔍 RapidAPI IG v3/url — root keys:", JSON.stringify(Object.keys(data)));
 
         const esPrivada = data?.metadata?.is_private === true
             || data?.error?.toString().toLowerCase().includes('private');
@@ -473,7 +473,7 @@ async function descargarIGv2(url) {
             return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
 
         if (c0?.videos?.[0]?.url) {
-            console.log(`✅ RapidAPI IG v2: video encontrado`);
+            console.log(`✅ RapidAPI IG v3/url: video encontrado`);
             const videoResp = await axios.get(c0.videos[0].url, {
                 responseType: 'arraybuffer', timeout: 25000, maxContentLength: 25 * 1024 * 1024
             });
@@ -486,14 +486,14 @@ async function descargarIGv2(url) {
         else if (data?.url)              return { tipo: 'imagen', url: data.url };
         else if (data?.display_url)      return { tipo: 'imagen', url: data.display_url };
 
-        console.log("⚠️ RapidAPI IG v2: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
+        console.log("⚠️ RapidAPI IG v3/url: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
         return null;
 
     } catch (err) {
         if (err.response) {
-            console.error(`⚠️ RapidAPI IG v2 falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
+            console.error(`⚠️ RapidAPI IG v3/url falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
         } else {
-            console.error("⚠️ RapidAPI IG v2 falló:", err.message);
+            console.error("⚠️ RapidAPI IG v3/url falló:", err.message);
         }
         return null;
     }
