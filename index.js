@@ -301,24 +301,20 @@ async function descargarConRapidAPI(url, esInstagram) {
                 }
             );
 
-            // LOG COMPLETO para ver la estructura real que devuelve la API
             const data = resp.data;
-            console.log("🔍 RapidAPI IG respuesta (keys):", JSON.stringify(Object.keys(data)));
-            console.log("🔍 RapidAPI IG data completa:", JSON.stringify(data).substring(0, 800));
 
-            // Recorrer todas las estructuras posibles que puede devolver esta API
-            if (data?.renderableLinks?.length > 0) {
+            // Estructura real confirmada: contents[0].videos[0].url
+            if (data?.contents?.[0]?.videos?.[0]?.url) {
+                videoUrl = data.contents[0].videos[0].url;
+                console.log(`✅ RapidAPI IG: URL encontrada (${data.contents[0].videos[0].label})`);
+            } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
                 videoUrl = data.videoUrl;
             } else if (data?.video_url) {
                 videoUrl = data.video_url;
-            } else if (data?.media?.video_url) {
-                videoUrl = data.media.video_url;
-            } else if (data?.data?.video_url) {
-                videoUrl = data.data.video_url;
-            } else if (data?.items?.[0]?.video_versions?.[0]?.url) {
-                videoUrl = data.items[0].video_versions[0].url;
+            } else {
+                console.log("⚠️ RapidAPI IG: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
             }
 
         } else {
@@ -340,10 +336,12 @@ async function descargarConRapidAPI(url, esInstagram) {
             );
 
             const data = resp.data;
-            console.log("🔍 RapidAPI TT respuesta (keys):", JSON.stringify(Object.keys(data)));
-            console.log("🔍 RapidAPI TT data completa:", JSON.stringify(data).substring(0, 800));
 
-            if (data?.renderableLinks?.length > 0) {
+            // Intentar estructura similar a IG: contents[0].videos[0].url
+            if (data?.contents?.[0]?.videos?.[0]?.url) {
+                videoUrl = data.contents[0].videos[0].url;
+                console.log(`✅ RapidAPI TT: URL encontrada (${data.contents[0].videos[0].label || 'sin label'})`);
+            } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
                 videoUrl = data.videoUrl;
@@ -351,8 +349,8 @@ async function descargarConRapidAPI(url, esInstagram) {
                 videoUrl = data.video.playAddr;
             } else if (data?.data?.play) {
                 videoUrl = data.data.play;
-            } else if (data?.data?.wmplay) {
-                videoUrl = data.data.wmplay;
+            } else {
+                console.log("⚠️ RapidAPI TT: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
             }
         }
 
