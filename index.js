@@ -21,8 +21,6 @@ const { CronJob } = require('cron');
 const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
-// URL DEL COMPRESOR EN HUGGING FACE
-const URL_COMPRESOR = 'https://el-burdel-burdel-video-encoder.hf.space/compress';
 
 const client = new Client({
     intents: [
@@ -44,7 +42,7 @@ let baseCumples = {};
 const mensajesCumple = [
     "¡Hoy se toma fuerte! 🍻 Feliz cumpleaños <@USER>, que pases una noche tremenda en El Burdel. 🎉",
     "💥 ¡Atención comunidad! Hoy es el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
-    "🎂 ¡Feliz cumple <@USER>! Que arranques el día spectacular. Te mandamos un abrazo gigante de parte de toda la banda. 🎈",
+    "🎂 ¡Feliz cumple <@USER>! Que arranques el día espectacular. Te mandamos un abrazo gigante de parte de toda la banda. 🎈",
     "🥳 ¡Felicidades <@USER>! Un año más viejo pero más fanchero. Que explote ese festejo hoy. 💥🥂",
     "✨ Que las narguilas y los brindis no falten hoy. ¡Muy feliz cumpleaños <@USER>! Pasala de diez loco. 🛕🔥"
 ];
@@ -125,7 +123,7 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
@@ -255,12 +253,18 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
+// ===================================================
+// HELPERS: EXTRAER SHORTCODE/ID DE URLs
+// ===================================================
+
 function extraerShortcodeIG(url) {
+    // Soporta /reel/CODE, /p/CODE, /tv/CODE
     const match = url.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
     return match ? match[1] : null;
 }
 
 function extraerIdTikTok(url) {
+    // URL larga: tiktok.com/@user/video/ID
     const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
     return match ? match[1] : null;
 }
@@ -268,6 +272,11 @@ function extraerIdTikTok(url) {
 function esUrlCortaTikTok(url) {
     return /(?:vm|vt)\.tiktok\.com\//.test(url);
 }
+
+// ===================================================
+// CAPA 1: DESCARGA REAL VÍA RAPIDAPI
+// Devuelve un Buffer del video, o null si falla
+// ===================================================
 
 async function descargarConRapidAPI(url, esInstagram) {
     const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
@@ -283,7 +292,10 @@ async function descargarConRapidAPI(url, esInstagram) {
             const resp = await axios.get(
                 'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
                 {
-                    params: { shortcode, renderableFormats: '720p,highres' },
+                    params: {
+                        shortcode,
+                        renderableFormats: '720p,highres'
+                    },
                     headers: {
                         'x-rapidapi-key': RAPIDAPI_KEY,
                         'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
@@ -295,6 +307,7 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const data = resp.data;
 
+            // Detectar cuenta privada - solo si la API lo dice explicitamente
             const esPrivada = data?.metadata?.is_private === true
                 || data?.error?.toString().toLowerCase().includes('private');
 
@@ -305,35 +318,49 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const c0 = data?.contents?.[0];
 
+            // Si contents vacio pero metadata tiene thumbnailUrl, usar esa imagen
             if (!c0 && data?.metadata?.thumbnailUrl) {
-                console.log('✅ RapidAPI IG: imagen en metadata.thumbnailUrl');
+                console.log('\u2705 RapidAPI IG: imagen en metadata.thumbnailUrl');
                 return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
             }
 
+            // Video
             if (c0?.videos?.[0]?.url) {
                 videoUrl = c0.videos[0].url;
-                console.log(`✅ RapidAPI IG: link de video obtenido -> ${videoUrl.substring(0, 50)}...`);
+                console.log(`✅ RapidAPI IG: video encontrado (${c0.videos[0].label})`);
+            // Imagen — múltiples rutas posibles según el endpoint
             } else if (c0?.images?.[0]?.url) {
+                console.log(`✅ RapidAPI IG: imagen en contents[0].images`);
                 return { tipo: 'imagen', url: c0.images[0].url };
             } else if (c0?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en display_url`);
                 return { tipo: 'imagen', url: c0.display_url };
             } else if (c0?.image_url) {
+                console.log(`✅ RapidAPI IG: imagen en image_url`);
                 return { tipo: 'imagen', url: c0.image_url };
             } else if (c0?.thumbnail_url) {
+                console.log(`✅ RapidAPI IG: imagen en thumbnail_url`);
                 return { tipo: 'imagen', url: c0.thumbnail_url };
             } else if (c0?.url) {
+                console.log(`✅ RapidAPI IG: imagen en contents[0].url`);
                 return { tipo: 'imagen', url: c0.url };
+            // Algunos endpoints devuelven el array de medias en data.media directamente
             } else if (data?.media?.[0]?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.media[0].url`);
                 return { tipo: 'imagen', url: data.media[0].url };
             } else if (data?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.url`);
                 return { tipo: 'imagen', url: data.url };
             } else if (data?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en data.display_url`);
                 return { tipo: 'imagen', url: data.display_url };
             } else {
+                console.log("⚠️ RapidAPI IG endpoint v3: sin media, probando endpoint v2...");
                 return { tipo: 'not_found_v3' };
             }
 
         } else {
+            // TikTok — resolver URLs cortas (vt.tiktok.com, vm.tiktok.com)
             let urlFinal = url;
             if (esUrlCortaTikTok(url)) {
                 try {
@@ -343,11 +370,17 @@ async function descargarConRapidAPI(url, esInstagram) {
                         headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' }
                     });
                     urlFinal = redir.request?.res?.responseUrl || redir.config?.url || url;
-                } catch (e) {}
+                    console.log(`🔗 TikTok short URL resuelta: ${urlFinal}`);
+                } catch (e) {
+                    console.log("⚠️ No se pudo resolver URL corta de TikTok:", e.message);
+                }
             }
 
             const videoId = extraerIdTikTok(urlFinal);
-            if (!videoId) return null;
+            if (!videoId) {
+                console.log("⚠️ No se pudo extraer ID de TikTok de:", urlFinal);
+                return null;
+            }
 
             const resp = await axios.get(
                 'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
@@ -366,7 +399,9 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             if (data?.contents?.[0]?.videos?.[0]?.url) {
                 videoUrl = data.contents[0].videos[0].url;
+                console.log(`✅ RapidAPI TT: video encontrado (${data.contents[0].videos[0].label || 'sin label'})`);
             } else if (data?.contents?.[0]?.images?.[0]?.url) {
+                console.log(`✅ RapidAPI TT: imagen encontrada`);
                 return { tipo: 'imagen', url: data.contents[0].images[0].url };
             } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
@@ -376,33 +411,43 @@ async function descargarConRapidAPI(url, esInstagram) {
                 videoUrl = data.video.playAddr;
             } else if (data?.data?.play) {
                 videoUrl = data.data.play;
+            } else {
+                console.log("⚠️ RapidAPI TT: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
             }
-            if (videoUrl) console.log(`✅ RapidAPI TikTok: link de video obtenido -> ${videoUrl.substring(0, 50)}...`);
         }
 
         if (!videoUrl) return null;
 
+        // Descargar el binario del video (límite 9MB para Discord sin boost)
         const LIMITE_DISCORD = 9 * 1024 * 1024;
-        console.log(`📥 Intentando descargar buffer del video... (Límite: 9MB)`);
-        
         const videoResp = await axios.get(videoUrl, {
             responseType: 'arraybuffer',
             timeout: 25000,
-            maxContentLength: LIMITE_DISCORD,
-            maxBodyLength: LIMITE_DISCORD
+            maxContentLength: LIMITE_DISCORD
         });
+
+
 
         return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
-        if (err.message && (err.message.includes('maxContentLength') || err.message.includes('maxBodyLength'))) {
-            console.log(`⚠️ [ALERTA DE TAMAÑO] El video supera los 9MB de buffer. Saltando a Hugging Face.`);
+        if (err.message && err.message.includes('maxContentLength')) {
+            console.log(`⚠️ Video demasiado grande para descargar`);
             return { tipo: 'muy_grande' };
         }
-        console.error("❌ Error controlado en descargarConRapidAPI:", err.message);
+        if (err.response) {
+            console.error(`⚠️ RapidAPI falló: ${err.message} — status: ${err.response.status}`);
+            console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
+        } else {
+            console.error("⚠️ RapidAPI falló:", err.message);
+        }
         return null;
     }
 }
+
+// ===================================================
+// CAPA 1b: SEGUNDO INTENTO IG — mismo endpoint v3 pero con URL completa en vez de shortcode
+// ===================================================
 
 async function descargarIGv2(url) {
     const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
@@ -423,6 +468,8 @@ async function descargarIGv2(url) {
         );
 
         const data = resp.data;
+        console.log("🔍 RapidAPI IG v3/url — root keys:", JSON.stringify(Object.keys(data)));
+
         const esPrivada = data?.metadata?.is_private === true
             || data?.error?.toString().toLowerCase().includes('private');
         if (esPrivada) return { tipo: 'privada' };
@@ -433,8 +480,9 @@ async function descargarIGv2(url) {
             return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
 
         if (c0?.videos?.[0]?.url) {
+            console.log(`✅ RapidAPI IG v3/url: video encontrado`);
             const videoResp2 = await axios.get(c0.videos[0].url, {
-                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024, maxBodyLength: 9 * 1024 * 1024
+                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024
             });
             return { tipo: 'video', buffer: Buffer.from(videoResp2.data) };
         } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
@@ -445,20 +493,38 @@ async function descargarIGv2(url) {
         else if (data?.url)              return { tipo: 'imagen', url: data.url };
         else if (data?.display_url)      return { tipo: 'imagen', url: data.display_url };
 
+        console.log("⚠️ RapidAPI IG v3/url: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
         return null;
+
     } catch (err) {
+        if (err.response) {
+            console.error(`⚠️ RapidAPI IG v3/url falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
+        } else {
+            console.error("⚠️ RapidAPI IG v3/url falló:", err.message);
+        }
         return null;
     }
 }
 
-// 🔀 FUNCIÓN MUTADORA (TERCER MOTOR DE SEGURIDAD)
+// ===================================================
+// CAPA 2: FALLBACK — REDIRECCIÓN A DOMINIO ALTERNATIVO
+// Sin descarga, solo cambia el dominio para que Discord renderice
+// ===================================================
+
 function generarLinkFallback(url, esInstagram) {
     if (esInstagram) {
+        // Regex para reemplazar SOLO instagram.com (con o sin www) sin duplicar
         return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
     } else {
+        // Regex para reemplazar SOLO tiktok.com (con o sin www/vm) sin duplicar
         return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
     }
 }
+
+// ===================================================
+// MOTOR PRINCIPAL: DETECTOR DE LINKS EN MENSAJES
+// Arquitectura: RapidAPI → ddinstagram/vxtiktok → link original
+// ===================================================
 
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
@@ -473,25 +539,22 @@ client.on(Events.MessageCreate, async message => {
 
     if (!igMatch && !ttMatch) return;
 
-    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
+    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; // Limpiar parámetros UTM
     const esInstagram = !!igMatch;
 
-    console.log(`📡 [LINK DETECTADO] El usuario ${message.author.username} envió: ${linkOriginal} (${esInstagram ? 'Instagram' : 'TikTok'})`);
-
+    // Borrar mensaje original
     await message.delete().catch(() => {});
 
+    // Mensaje de carga temporal
     const msgCargando = await message.channel.send(
         `⏳ Procesando video de <@${message.author.id}>...`
     );
 
-    // Guardamos el link mutado listo por si todo lo demás explota
-    const linkEspejoFallBack = generarLinkFallback(linkOriginal, esInstagram);
-
     try {
-        console.log(`⚡ Iniciando flujo de descarga...`);
-        let resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
-        console.log(`📦 Estado del resultado final del Downloader:`, resultado ? resultado.tipo : 'null');
+        // ── CAPA 1: Intentar descarga real con RapidAPI ──
+        const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
 
+        // Helper: construir botón "Ver en X"
         const botonVer = (esIG) => new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel(esIG ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
@@ -499,17 +562,18 @@ client.on(Events.MessageCreate, async message => {
                 .setURL(linkOriginal)
         );
 
+        // Cuenta privada
         if (resultado?.tipo === 'privada') {
-            console.log(`🔒 Cuenta privada. Cortando flujo.`);
             await msgCargando.edit({
                 content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.`
             });
+            console.log(`🔒 Cuenta privada para ${message.author.username}`);
             return;
         }
 
+        // Helper para enviar media con botón
         async function enviarConBoton(tipo, datos) {
             if (tipo === 'video') {
-                console.log(`📤 Subiendo video normal (<9MB) a Discord...`);
                 const adjunto = new AttachmentBuilder(datos.buffer, { name: 'burdel_video.mp4' });
                 await message.channel.send({
                     content: `📹 **${message.author.displayName}** compartió un video:`,
@@ -517,7 +581,6 @@ client.on(Events.MessageCreate, async message => {
                     components: [botonVer(esInstagram)]
                 });
             } else {
-                console.log(`📤 Subiendo imagen extraída a Discord...`);
                 const imgResp = await axios.get(datos.url, { responseType: 'arraybuffer', timeout: 15000 });
                 const ext = datos.url.includes('.png') ? 'png' : 'jpg';
                 const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
@@ -530,108 +593,76 @@ client.on(Events.MessageCreate, async message => {
             await msgCargando.delete().catch(() => {});
         }
 
-        // 🚨 CASO A: EL VIDEO EXISTE PERO EXCEDE LOS 9MB
+        // Video demasiado grande para Discord
         if (resultado?.tipo === 'muy_grande') {
-            await msgCargando.edit(`⏳ El video es muy pesado. Comprimiendo en Hugging Face para Discord...`);
-            console.log(`🚀 [HUGGING FACE] Enviando solicitud de compresión remota para: ${linkOriginal}`);
-            try {
-                const respuestaHF = await axios.post(URL_COMPRESOR, { videoUrl: linkOriginal }, { timeout: 80000 });
-                
-                if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
-                    console.log(`📥 Recibido Base64 de Hugging Face. Convirtiendo a buffer...`);
-                    const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
-                    const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video_comprimido.mp4' });
-                    
-                    await message.channel.send({
-                        content: `📹 **${message.author.displayName}** compartió un video (optimizado por HuggingFace):`,
-                        files: [adjunto],
-                        components: [botonVer(esInstagram)]
-                    });
-                    await msgCargando.delete().catch(() => {});
-                    console.log(`✅ Video pesado comprimido exitosamente por HF y subido.`);
-                    return;
-                } else {
-                    throw new Error("Respuesta inválida o success falso de la API de Hugging Face");
-                }
-            } catch (err) {
-                console.error("❌ Falló el compresor de Hugging Face:", err.message);
-                // Si HF falla por tamaño, saltamos al link espejo inteligente
-                console.log(`🔄 [FALLBACK TAMAÑO] HF caído. Mutando enlace a proxy interactivo...`);
-                await message.channel.send({
-                    content: `📹 **${message.author.displayName}** compartió un video pesado:\n${linkEspejoFallBack}`
-                });
-                await msgCargando.delete().catch(() => {});
-                return;
-            }
+            const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+            const emojiRed = esInstagram ? '📸' : '🎵';
+            await msgCargando.edit({
+                content: `${emojiRed} **${message.author.displayName}** compartió un video de ${labelRed} (muy pesado para subir):`,
+                components: [botonVer(esInstagram)]
+            });
+            console.log(`⚠️ Video muy grande, botón enviado para ${message.author.username}`);
+            return;
         }
 
+        // Video descargado
         if (resultado?.tipo === 'video') {
             await enviarConBoton('video', resultado);
+            console.log(`✅ Video subido para ${message.author.username}`);
             return;
         }
 
+        // Imagen descargada
         if (resultado?.tipo === 'imagen') {
             await enviarConBoton('imagen', resultado);
+            console.log(`✅ Imagen subida para ${message.author.username}`);
             return;
         }
 
+        // ── CAPA 1b: Segundo intento IG con endpoint v3/url ──
         if (esInstagram && resultado?.tipo === 'not_found_v3') {
-            console.log(`🔄 Intento secundario con descargarIGv2...`);
+            console.log(`↩️ Intentando endpoint v3/url para IG...`);
             const resultado2 = await descargarIGv2(linkOriginal);
 
+            if (resultado2?.tipo === 'privada') {
+                await msgCargando.edit({ content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.` });
+                return;
+            }
             if (resultado2?.tipo === 'video') {
                 await enviarConBoton('video', resultado2);
+                console.log(`✅ Video subido (v3/url) para ${message.author.username}`);
                 return;
             }
             if (resultado2?.tipo === 'imagen') {
                 await enviarConBoton('imagen', resultado2);
+                console.log(`✅ Imagen subida (v3/url) para ${message.author.username}`);
                 return;
             }
         }
 
-        // 🚨 CASO B [RESCATE HF]: RAPIDAPI DIO NULL O NOT_FOUND
-        console.log(`🔄 [RESCATE HF] RapidAPI no detectó contenido. Invocando extracción directa en Hugging Face...`);
-        await msgCargando.edit(`⏳ RapidAPI no pudo leer el enlace. Intentando rescate mediante el servidor auxiliar...`);
-        
-        try {
-            const respuestaHF = await axios.post(URL_COMPRESOR, { videoUrl: linkOriginal }, { timeout: 80000 });
-            
-            if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
-                console.log(`📥 [RESCATE ÉXITO] Recibido Base64 desde el motor de Hugging Face.`);
-                const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
-                const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video_rescatado.mp4' });
-                
-                await message.channel.send({
-                    content: `📹 **${message.author.displayName}** compartió un video (extraído vía HuggingFace):`,
-                    files: [adjunto],
-                    components: [botonVer(esInstagram)]
-                });
-                await msgCargando.delete().catch(() => {});
-                return;
-            } else {
-                throw new Error("Respuesta de rescate vacía o fallida");
-            }
-        } catch (hfErr) {
-            console.error("❌ El plan de rescate de Hugging Face también falló:", hfErr.message);
-            
-            // 🔥 ULTRAPLAN DE EMERGENCIA: Si todo falla, tiramos el link mutado interactivo para que Discord lo reproduzca solo
-            console.log(`🎯 [EMERGENCIA FALLBACK] Activando tercer motor. Enviando link modificado: ${linkEspejoFallBack}`);
-            await message.channel.send({
-                content: `📹 **${message.author.displayName}** compartió un video:\n${linkEspejoFallBack}`
-            });
-            await msgCargando.delete().catch(() => {});
-            return;
-        }
+        // ── CAPA 2: Fallback — no se pudo procesar, solo botón ──
+        console.log(`↩️ No se pudo procesar, enviando botón de fallback...`);
+        await new Promise(r => setTimeout(r, 1500));
+
+        const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+        const emojiRed = esInstagram ? '📸' : '🎵';
+        await msgCargando.edit({
+            content: `${emojiRed} **${message.author.displayName}** compartió algo de ${labelRed}:`,
+            components: [botonVer(esInstagram)]
+        });
+        console.log(`↩️ Fallback con botón enviado para ${message.author.username}`);
 
     } catch (err) {
-        console.error("❌ Error crítico en motor de videos:", err.message);
-        await message.channel.send({
-            content: `📹 **${message.author.displayName}** compartió un enlace:\n${linkEspejoFallBack}`
-        });
-        await msgCargando.delete().catch(() => {});
+        console.error("❌ Error total en motor de videos:", err.message);
+        await msgCargando.edit({
+            content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
+        }).catch(() => {});
     }
 });
 
+// ==========================================
+// ARRANQUE DEL SERVIDOR HTTP (SIEMPRE AL FINAL)
+// ==========================================
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end("Bot online");
@@ -639,6 +670,21 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
+    console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
+
+    if (!process.env.TOKEN) {
+        console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO.");
+    } else {
+        console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+    }
+
+    if (!process.env.RAPIDAPI_KEY) {
+        console.log("⚠️  RAPIDAPI_KEY no configurada. Solo fallback de dominio activo.");
+    } else {
+        console.log(`✅ RapidAPI Key detectada. Comienza con: "${process.env.RAPIDAPI_KEY.substring(0, 5)}..."`);
+    }
+
+    console.log("🔑 Enviando señal de inicio de sesión a Discord...");
     client.login(process.env.TOKEN).catch(err => {
         console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
     });
