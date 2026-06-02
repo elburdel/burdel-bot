@@ -18,7 +18,7 @@ const {
 } = require('discord.js');
 
 const { CronJob } = require('cron');
-const momentTimezone = require('moment-timezone');
+const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 
@@ -36,9 +36,6 @@ const CANAL_BOTONES = '1507503587008188446';
 const CANAL_PRINCIPAL = '1424978392696229990';
 const CANAL_PANEL_CONTROL = '1508567294551392448';
 const CANAL_BASE_DATOS = '1508589852638052474';
-
-// URL DE TU NUEVO COMPRESOR AUXILIAR EN HUGGING FACE
-const URL_COMPRESOR = 'https://el-burdel-burdel-video-encoder.hf.space/compress';
 
 let baseCumples = {};
 
@@ -65,48 +62,39 @@ async function respaldarEnDiscord() {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
         const mensajes = await canalBD.messages.fetch({ limit: 10 });
         const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
-        
-        for (const msg of mensajesBackup.values()) {
-            await msg.delete().catch(() => {});
-        }
-        
+        for (const msg of mensajesBackup.values()) { await msg.delete().catch(() => {}); }
         const textoBackup = '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples);
         await canalBD.send({ content: textoBackup });
-        console.log("💾 Datos respaldados con éxito en el canal Base de Datos.");
-    } catch (e) {
-        console.error("❌ Error al respaldar en Discord:", e);
-    }
+        console.log("💾 Datos respaldados con éxito.");
+    } catch (e) { console.error("❌ Error al respaldar:", e); }
 }
 
 async function recuperarDesdeDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
         const mensajesBD = await canalBD.messages.fetch({ limit: 5 });
-        
         const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
         if (backupNuevo) {
             const jsonTexto = backupNuevo.content.replace('||DB_CUMPLES_DATA||', '');
             baseCumples = JSON.parse(jsonTexto);
-            console.log("🧠 Memoria restaurada desde el nuevo canal BD. Registros cargados:", Object.keys(baseCumples).length);
+            console.log("🧠 Memoria restaurada. Registros:", Object.keys(baseCumples).length);
             return;
         }
-
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
         const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
-        
         if (backupViejo) {
             const jsonTextoViejo = backupViejo.content.replace('||BACKUP_CUMPLES||', '');
             baseCumples = JSON.parse(jsonTextoViejo);
             await respaldarEnDiscord();
-            console.log("🦅 Herencia encontrada en Panel de Control. Migrado exitosamente a nuevo canal.");
+            console.log("🦅 Herencia de datos migrada con éxito.");
         } else {
             baseCumples = {};
-            console.log("📂 Sin datos previos encontrados en ningún canal. Base limpia inicializada.");
+            console.log("📂 Sin datos previos. Base limpia.");
         }
     } catch (e) {
         baseCumples = {};
-        console.error("❌ Error crítico en recuperación de memoria:", e);
+        console.error("❌ Error en recuperación de memoria:", e);
     }
 }
 
@@ -114,13 +102,12 @@ client.once(Events.ClientReady, async () => {
     console.log("===============================================");
     console.log(`🤖 ¡BOT ONLINE EN DISCORD! Conectado como: ${client.user.tag}`);
     console.log("===============================================");
-    
-    await recuperarDesdeDiscord().catch(e => console.error("Error cargando memoria inicial:", e));
+    await recuperarDesdeDiscord().catch(e => console.error("Error cargando memoria:", e));
 
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 }).catch(() => null);
-        
+
         if (canalAnuncios && mensajes) {
             const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
 
@@ -136,17 +123,13 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
-            } else {
-                console.log("👍 Los botones de salas ya estaban puestos.");
-            }
+            } else { console.log("👍 Los botones de salas ya estaban puestos."); }
         }
-    } catch (error) {
-        console.error("❌ Alerta en canal de botones:", error.message);
-    }
+    } catch (error) { console.error("❌ Alerta en canal de botones:", error.message); }
 
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
@@ -167,19 +150,15 @@ client.once(Events.ClientReady, async () => {
                     components: [filaControl]
                 });
                 console.log("📌 Panel de control inicializado por primera vez.");
-            } else {
-                console.log("👍 El panel de control ya estaba activo.");
-            }
+            } else { console.log("👍 El panel de control ya estaba activo."); }
         }
-    } catch (error) {
-        console.error("❌ Alerta en canal de panel de control:", error.message);
-    }
+    } catch (error) { console.error("❌ Alerta en canal de panel de control:", error.message); }
 
     try {
         new CronJob('0 0 0 * * *', async () => {
-            const hoy = momentTimezone().tz('America/Argentina/Buenos_Aires').format('DD/MM');
+            const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
             const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL).catch(() => null);
-            
+
             if (canalDestino) {
                 for (const [userId, fecha] of Object.entries(baseCumples)) {
                     if (fecha === hoy) {
@@ -190,9 +169,7 @@ client.once(Events.ClientReady, async () => {
                 }
             }
         }, null, true, 'America/Argentina/Buenos_Aires');
-    } catch(err) {
-        console.error("❌ Error al armar el CronJob de cumple:", err);
-    }
+    } catch(err) { console.error("❌ Error al armar el CronJob:", err); }
 });
 
 const adminCache = new Map();
@@ -201,10 +178,8 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         let salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
-
         const key = `${interaction.user.id}_${salaKey}`;
         const ahora = Date.now();
-
         if (cooldowns.has(key)) {
             const tiempoPasado = ahora - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
@@ -213,9 +188,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 return;
             }
         }
-
         cooldowns.set(key, ahora);
-
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
             const mensajes = {
@@ -224,100 +197,335 @@ client.on(Events.InteractionCreate, async interaction => {
                 bubbaloo: `🍬 ${interaction.user.username} abrió Bubbaloo Team\n\n✨ Entren:\n${links.bubbaloo}`,
                 templo: `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.templo}`
             };
-
             await canalPrincipal.send(mensajes[salaKey]);
-            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada con éxito!`, flags: [MessageFlags.Ephemeral] });
-        } catch (error) {
-            console.error("Error al enviar anuncio al canal principal:", error);
-        }
+            await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: [MessageFlags.Ephemeral] });
+        } catch (error) { console.error(error); }
         return;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         if (interaction.customId === 'admin_ver_cumples') {
-            if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
-            }
+            if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
             let textoLista = "🎂 **LISTA DE CUMPLEAÑOS REGISTRADOS** 🎂\n\n";
-            for (const [userId, fecha] of Object.entries(baseCumples)) {
-                textoLista += `• <@${userId}> ➔ **${fecha}**\n`;
-            }
+            for (const [userId, fecha] of Object.entries(baseCumples)) { textoLista += `• <@${userId}> ➔ **${fecha}**\n`; }
             textoLista += `\n*Total: ${Object.keys(baseCumples).length} chicos anotados.*`;
             return await interaction.reply({ content: textoLista, flags: [MessageFlags.Ephemeral] });
         }
-
         if (interaction.customId === 'admin_agregar_cumple') {
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-            const menuUsuarios = new UserSelectMenuBuilder()
-                .setCustomId('select_agregar_usuario')
-                .setPlaceholder('Seleccioná al cumpleañero...');
-            return await interaction.editReply({ content: "👤 Elegí al chico que querés agendar:", components: [new ActionRowBuilder().addComponents(menuUsuarios)] });
+            const menuUsuarios = new UserSelectMenuBuilder().setCustomId('select_agregar_usuario').setPlaceholder('Seleccioná al cumpleañero...');
+            return await interaction.editReply({ content: "👤 Elegí al chico:", components: [new ActionRowBuilder().addComponents(menuUsuarios)] });
         }
-
         if (interaction.customId === 'admin_borrar_cumple') {
-            if (Object.keys(baseCumples).length === 0) {
-                return await interaction.reply({ content: "❌ No hay nadie registrado para borrar.", flags: [MessageFlags.Ephemeral] });
-            }
+            if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "❌ No hay nadie anotado.", flags: [MessageFlags.Ephemeral] });
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-            const menuUsuariosBorrar = new UserSelectMenuBuilder()
-                .setCustomId('select_borrar_usuario')
-                .setPlaceholder('Seleccioná a quién eliminar...');
-            return await interaction.editReply({ content: "🗑️ Seleccioná al chico que querés remover:", components: [new ActionRowBuilder().addComponents(menuUsuariosBorrar)] });
+            const menuUsuariosBorrar = new UserSelectMenuBuilder().setCustomId('select_borrar_usuario').setPlaceholder('Seleccioná a quién eliminar...');
+            return await interaction.editReply({ content: "🗑️ Seleccioná al chico:", components: [new ActionRowBuilder().addComponents(menuUsuariosBorrar)] });
         }
     }
 
     if (interaction.isUserSelectMenu()) {
         const usuarioSeleccionado = interaction.values[0];
-
         if (interaction.customId === 'select_agregar_usuario') {
             adminCache.set(interaction.user.id, usuarioSeleccionado);
             const modal = new ModalBuilder().setCustomId('modal_fecha_cumple').setTitle('Fecha de Cumpleaños');
-            const entradaFecha = new TextInputBuilder()
-                .setCustomId('input_fecha')
-                .setLabel('¿Qué día cumple? (DD/MM)')
-                .setPlaceholder('Ejemplo: 15/08')
-                .setStyle(TextInputStyle.Short)
-                .setMinLength(5)
-                .setMaxLength(5)
-                .setRequired(true);
-
+            const entradaFecha = new TextInputBuilder().setCustomId('input_fecha').setLabel('¿Qué día cumple? (DD/MM)').setPlaceholder('Ejemplo: 15/08').setStyle(TextInputStyle.Short).setMinLength(5).setMaxLength(5).setRequired(true);
             return await interaction.showModal(modal.addComponents(new ActionRowBuilder().addComponents(entradaFecha)));
         }
-
         if (interaction.customId === 'select_borrar_usuario') {
             if (baseCumples[usuarioSeleccionado]) {
                 delete baseCumples[usuarioSeleccionado];
                 await respaldarEnDiscord();
-                return await interaction.reply({ content: `🗑️ Listo Seba, removí a <@${usuarioSeleccionado}> de la lista de cumpleaños.`, flags: [MessageFlags.Ephemeral] });
-            } else {
-                return await interaction.reply({ content: "⚠️ El usuario seleccionado no estaba registrado.", flags: [MessageFlags.Ephemeral] });
-            }
+                return await interaction.reply({ content: `🗑️ Listo Seba, removido <@${usuarioSeleccionado}>.`, flags: [MessageFlags.Ephemeral] });
+            } else { return await interaction.reply({ content: "⚠️ No estaba registrado.", flags: [MessageFlags.Ephemeral] }); }
         }
     }
 
     if (interaction.isModalSubmit() && interaction.customId === 'modal_fecha_cumple') {
         const fechaInput = interaction.fields.getTextInputValue('input_fecha');
         const usuarioGuardado = adminCache.get(interaction.user.id);
-
-        if (!/^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput)) {
-            return await interaction.reply({ content: "❌ Formato incorrecto. Por favor ingresá la fecha como DD/MM (ejemplo: 05/12).", flags: [MessageFlags.Ephemeral] });
-        }
-
-        if (!usuarioGuardado) {
-            return await interaction.reply({ content: "❌ Error de sesión al guardar. Volvé a intentarlo.", flags: [MessageFlags.Ephemeral] });
-        }
-
+        if (!/^([0-2][0-9]|3[0-1])\/(0[1-9]|1[0-2])$/.test(fechaInput)) return await interaction.reply({ content: "❌ Formato incorrecto. Usá DD/MM.", flags: [MessageFlags.Ephemeral] });
+        if (!usuarioGuardado) return await interaction.reply({ content: "❌ Error de sesión.", flags: [MessageFlags.Ephemeral] });
         baseCumples[usuarioGuardado] = fechaInput;
         adminCache.delete(interaction.user.id);
         await respaldarEnDiscord();
-
-        return await interaction.reply({ content: `✅ ¡Impecable! Guardé a <@${usuarioGuardado}> para el día **${fechaInput}**.`, flags: [MessageFlags.Ephemeral] });
+        return await interaction.reply({ content: `✅ Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`, flags: [MessageFlags.Ephemeral] });
     }
 });
 
-// ==========================================================
-// INTERCEPTOR MEJORADO: NO ROMPE NADA Y ASEGURA VISUALIZACIÓN
-// ==========================================================
+// ===================================================
+// HELPERS: EXTRAER SHORTCODE/ID DE URLs
+// ===================================================
+
+function extraerShortcodeIG(url) {
+    // Soporta /reel/CODE, /p/CODE, /tv/CODE
+    const match = url.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
+    return match ? match[1] : null;
+}
+
+function extraerIdTikTok(url) {
+    // URL larga: tiktok.com/@user/video/ID
+    const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
+    return match ? match[1] : null;
+}
+
+function esUrlCortaTikTok(url) {
+    return /(?:vm|vt)\.tiktok\.com\//.test(url);
+}
+
+// ===================================================
+// CAPA 1: DESCARGA REAL VÍA RAPIDAPI
+// Devuelve un Buffer del video, o null si falla
+// ===================================================
+
+async function descargarConRapidAPI(url, esInstagram) {
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) return null;
+
+    try {
+        let videoUrl = null;
+
+        if (esInstagram) {
+            const shortcode = extraerShortcodeIG(url);
+            if (!shortcode) return null;
+
+            const resp = await axios.get(
+                'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
+                {
+                    params: {
+                        shortcode,
+                        renderableFormats: '720p,highres'
+                    },
+                    headers: {
+                        'x-rapidapi-key': RAPIDAPI_KEY,
+                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+
+            const data = resp.data;
+
+            // Detectar cuenta privada - solo si la API lo dice explicitamente
+            const esPrivada = data?.metadata?.is_private === true
+                || data?.error?.toString().toLowerCase().includes('private');
+
+            if (esPrivada) {
+                console.log("🔒 RapidAPI IG: cuenta privada");
+                return { tipo: 'privada' };
+            }
+
+            const c0 = data?.contents?.[0];
+
+            // Si contents vacio pero metadata tiene thumbnailUrl, usar esa imagen
+            if (!c0 && data?.metadata?.thumbnailUrl) {
+                console.log('\u2705 RapidAPI IG: imagen en metadata.thumbnailUrl');
+                return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
+            }
+
+            // Video
+            if (c0?.videos?.[0]?.url) {
+                videoUrl = c0.videos[0].url;
+                console.log(`✅ RapidAPI IG: video encontrado (${c0.videos[0].label})`);
+            // Imagen — múltiples rutas posibles según el endpoint
+            } else if (c0?.images?.[0]?.url) {
+                console.log(`✅ RapidAPI IG: imagen en contents[0].images`);
+                return { tipo: 'imagen', url: c0.images[0].url };
+            } else if (c0?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en display_url`);
+                return { tipo: 'imagen', url: c0.display_url };
+            } else if (c0?.image_url) {
+                console.log(`✅ RapidAPI IG: imagen en image_url`);
+                return { tipo: 'imagen', url: c0.image_url };
+            } else if (c0?.thumbnail_url) {
+                console.log(`✅ RapidAPI IG: imagen en thumbnail_url`);
+                return { tipo: 'imagen', url: c0.thumbnail_url };
+            } else if (c0?.url) {
+                console.log(`✅ RapidAPI IG: imagen en contents[0].url`);
+                return { tipo: 'imagen', url: c0.url };
+            // Algunos endpoints devuelven el array de medias en data.media directamente
+            } else if (data?.media?.[0]?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.media[0].url`);
+                return { tipo: 'imagen', url: data.media[0].url };
+            } else if (data?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.url`);
+                return { tipo: 'imagen', url: data.url };
+            } else if (data?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en data.display_url`);
+                return { tipo: 'imagen', url: data.display_url };
+            } else {
+                console.log("⚠️ RapidAPI IG endpoint v3: sin media, probando endpoint v2...");
+                return { tipo: 'not_found_v3' };
+            }
+
+        } else {
+            // TikTok — resolver URLs cortas (vt.tiktok.com, vm.tiktok.com)
+            let urlFinal = url;
+            if (esUrlCortaTikTok(url)) {
+                try {
+                    const redir = await axios.get(url, {
+                        maxRedirects: 5,
+                        timeout: 8000,
+                        headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' }
+                    });
+                    urlFinal = redir.request?.res?.responseUrl || redir.config?.url || url;
+                    console.log(`🔗 TikTok short URL resuelta: ${urlFinal}`);
+                } catch (e) {
+                    console.log("⚠️ No se pudo resolver URL corta de TikTok:", e.message);
+                }
+            }
+
+            const videoId = extraerIdTikTok(urlFinal);
+            if (!videoId) {
+                console.log("⚠️ No se pudo extraer ID de TikTok de:", urlFinal);
+                return null;
+            }
+
+            const resp = await axios.get(
+                'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
+                {
+                    params: { videoId, id: videoId, url: urlFinal },
+                    headers: {
+                        'x-rapidapi-key': RAPIDAPI_KEY,
+                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+
+            const data = resp.data;
+
+            if (data?.contents?.[0]?.videos?.[0]?.url) {
+                videoUrl = data.contents[0].videos[0].url;
+                console.log(`✅ RapidAPI TT: video encontrado (${data.contents[0].videos[0].label || 'sin label'})`);
+            } else if (data?.contents?.[0]?.images?.[0]?.url) {
+                console.log(`✅ RapidAPI TT: imagen encontrada`);
+                return { tipo: 'imagen', url: data.contents[0].images[0].url };
+            } else if (data?.renderableLinks?.[0]?.url) {
+                videoUrl = data.renderableLinks[0].url;
+            } else if (data?.videoUrl) {
+                videoUrl = data.videoUrl;
+            } else if (data?.video?.playAddr) {
+                videoUrl = data.video.playAddr;
+            } else if (data?.data?.play) {
+                videoUrl = data.data.play;
+            } else {
+                console.log("⚠️ RapidAPI TT: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
+            }
+        }
+
+        if (!videoUrl) return null;
+
+        // Descargar el binario del video (límite 9MB para Discord sin boost)
+        const LIMITE_DISCORD = 9 * 1024 * 1024;
+        const videoResp = await axios.get(videoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 25000,
+            maxContentLength: LIMITE_DISCORD
+        });
+
+
+
+        return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
+
+    } catch (err) {
+        if (err.message && err.message.includes('maxContentLength')) {
+            console.log(`⚠️ Video demasiado grande para descargar`);
+            return { tipo: 'muy_grande' };
+        }
+        if (err.response) {
+            console.error(`⚠️ RapidAPI falló: ${err.message} — status: ${err.response.status}`);
+            console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
+        } else {
+            console.error("⚠️ RapidAPI falló:", err.message);
+        }
+        return null;
+    }
+}
+
+// ===================================================
+// CAPA 1b: SEGUNDO INTENTO IG — mismo endpoint v3 pero con URL completa en vez de shortcode
+// ===================================================
+
+async function descargarIGv2(url) {
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) return null;
+
+    try {
+        const resp = await axios.get(
+            'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
+            {
+                params: { url, renderableFormats: '720p,highres' },
+                headers: {
+                    'x-rapidapi-key': RAPIDAPI_KEY,
+                    'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            }
+        );
+
+        const data = resp.data;
+        console.log("🔍 RapidAPI IG v3/url — root keys:", JSON.stringify(Object.keys(data)));
+
+        const esPrivada = data?.metadata?.is_private === true
+            || data?.error?.toString().toLowerCase().includes('private');
+        if (esPrivada) return { tipo: 'privada' };
+
+        const c0 = data?.contents?.[0];
+
+        if (!c0 && data?.metadata?.thumbnailUrl)
+            return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
+
+        if (c0?.videos?.[0]?.url) {
+            console.log(`✅ RapidAPI IG v3/url: video encontrado`);
+            const videoResp2 = await axios.get(c0.videos[0].url, {
+                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024
+            });
+            return { tipo: 'video', buffer: Buffer.from(videoResp2.data) };
+        } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
+        else if (c0?.display_url)        return { tipo: 'imagen', url: c0.display_url };
+        else if (c0?.image_url)          return { tipo: 'imagen', url: c0.image_url };
+        else if (c0?.thumbnail_url)      return { tipo: 'imagen', url: c0.thumbnail_url };
+        else if (c0?.url)                return { tipo: 'imagen', url: c0.url };
+        else if (data?.url)              return { tipo: 'imagen', url: data.url };
+        else if (data?.display_url)      return { tipo: 'imagen', url: data.display_url };
+
+        console.log("⚠️ RapidAPI IG v3/url: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
+        return null;
+
+    } catch (err) {
+        if (err.response) {
+            console.error(`⚠️ RapidAPI IG v3/url falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
+        } else {
+            console.error("⚠️ RapidAPI IG v3/url falló:", err.message);
+        }
+        return null;
+    }
+}
+
+// ===================================================
+// CAPA 2: FALLBACK — REDIRECCIÓN A DOMINIO ALTERNATIVO
+// Sin descarga, solo cambia el dominio para que Discord renderice
+// ===================================================
+
+function generarLinkFallback(url, esInstagram) {
+    if (esInstagram) {
+        // Regex para reemplazar SOLO instagram.com (con o sin www) sin duplicar
+        return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
+    } else {
+        // Regex para reemplazar SOLO tiktok.com (con o sin www/vm) sin duplicar
+        return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
+    }
+}
+
+// ===================================================
+// MOTOR PRINCIPAL: DETECTOR DE LINKS EN MENSAJES
+// Arquitectura: RapidAPI → ddinstagram/vxtiktok → link original
+// ===================================================
+
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
@@ -331,81 +539,124 @@ client.on(Events.MessageCreate, async message => {
 
     if (!igMatch && !ttMatch) return;
 
-    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; 
+    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; // Limpiar parámetros UTM
     const esInstagram = !!igMatch;
 
-    // Generamos las URLs espejo idénticas a tu código base original para garantizar visualización nativa
-    const linkEspejo = esInstagram 
-        ? linkOriginal.replace(/instagram\.com/i, 'ddinstagram.com')
-        : linkOriginal.replace(/tiktok\.com/i, 'vxtiktok.com');
+    // Borrar mensaje original
+    await message.delete().catch(() => {});
 
-    // Botón estético e interactivo inferior
-    const botonVer = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
-            .setStyle(ButtonStyle.Link)
-            .setURL(linkOriginal)
+    // Mensaje de carga temporal
+    const msgCargando = await message.channel.send(
+        `⏳ Procesando video de <@${message.author.id}>...`
     );
 
-    // 📸 SI ES UNA FOTO FIJA (/p/), SE COLOCA AL INSTANTE COMO ANTES (VISUALIZACIÓN GARANTIZADA)
-    if (esInstagram && linkOriginal.toLowerCase().includes('/p/')) {
-        try {
-            await message.delete().catch(() => {});
-            await message.channel.send({
-                content: `📸 **${message.author.displayName}** compartió una foto:\n${linkEspejo}`,
-                components: [botonVer]
-            });
-            console.log(`🖼️ Foto de IG procesada nativamente.`);
-        } catch (err) {
-            console.error("❌ Error enviando foto rápida:", err.message);
-        }
-        return;
-    }
-
-    // 📹 SI ES UN VIDEO (REEL O TIKTOK), INTENTAMOS EL COMPRESOR DE HUGGING FACE
-    let msgCargando;
-    
     try {
-        // En lugar de borrar el mensaje al principio, dejamos que mande el aviso temporal
-        msgCargando = await message.channel.send(`⏳ Procesando y optimizando video de <@${message.author.id}>...`);
-        await message.delete().catch(() => {});
+        // ── CAPA 1: Intentar descarga real con RapidAPI ──
+        const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
 
-        // Mandamos la orden al encoder auxiliar gratis
-        const respuestaHF = await axios.post(URL_COMPRESOR, {
-            videoUrl: linkOriginal
-        }, {
-            timeout: 45000 // Le damos 45 segundos de margen
-        });
+        // Helper: construir botón "Ver en X"
+        const botonVer = (esIG) => new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(esIG ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
+                .setStyle(ButtonStyle.Link)
+                .setURL(linkOriginal)
+        );
 
-        if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
-            // Si Hugging Face procesó el video con éxito, incrustamos el MP4 ultra comprimido
-            const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
-            const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video.mp4' });
-
-            await message.channel.send({
-                content: `📹 Video optimizado de **${message.author.displayName}**:`,
-                files: [adjunto],
-                components: [botonVer]
+        // Cuenta privada
+        if (resultado?.tipo === 'privada') {
+            await msgCargando.edit({
+                content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.`
             });
-
-            if (msgCargando) await msgCargando.delete().catch(() => {});
-            console.log(`✅ Video incrustado exitosamente con compresión Hugging Face.`);
-        } else {
-            throw new Error("Respuesta inválida del servidor.");
+            console.log(`🔒 Cuenta privada para ${message.author.username}`);
+            return;
         }
 
-    } catch (err) {
-        // 🚨 PLAN B DEFINITIVO (IGUAL A TU CODIGO ANTERIOR): Si falla Hugging Face, se visualiza al toque como antes
-        console.log(`⚠️ Servidor auxiliar falló o dio 500 (${err.message}). Aplicando previsualización nativa anterior.`);
-        
-        if (msgCargando) {
+        // Helper para enviar media con botón
+        async function enviarConBoton(tipo, datos) {
+            if (tipo === 'video') {
+                const adjunto = new AttachmentBuilder(datos.buffer, { name: 'burdel_video.mp4' });
+                await message.channel.send({
+                    content: `📹 **${message.author.displayName}** compartió un video:`,
+                    files: [adjunto],
+                    components: [botonVer(esInstagram)]
+                });
+            } else {
+                const imgResp = await axios.get(datos.url, { responseType: 'arraybuffer', timeout: 15000 });
+                const ext = datos.url.includes('.png') ? 'png' : 'jpg';
+                const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
+                await message.channel.send({
+                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                    files: [adjunto],
+                    components: [botonVer(esInstagram)]
+                });
+            }
             await msgCargando.delete().catch(() => {});
         }
 
-        await message.channel.send({
-            content: `📹 **${message.author.displayName}** compartió:\n${linkEspejo}`,
-            components: [botonVer]
+        // Video demasiado grande para Discord
+        if (resultado?.tipo === 'muy_grande') {
+            const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+            const emojiRed = esInstagram ? '📸' : '🎵';
+            await msgCargando.edit({
+                content: `${emojiRed} **${message.author.displayName}** compartió un video de ${labelRed} (muy pesado para subir):`,
+                components: [botonVer(esInstagram)]
+            });
+            console.log(`⚠️ Video muy grande, botón enviado para ${message.author.username}`);
+            return;
+        }
+
+        // Video descargado
+        if (resultado?.tipo === 'video') {
+            await enviarConBoton('video', resultado);
+            console.log(`✅ Video subido para ${message.author.username}`);
+            return;
+        }
+
+        // Imagen descargada
+        if (resultado?.tipo === 'imagen') {
+            await enviarConBoton('imagen', resultado);
+            console.log(`✅ Imagen subida para ${message.author.username}`);
+            return;
+        }
+
+        // ── CAPA 1b: Segundo intento IG con endpoint v3/url ──
+        if (esInstagram && resultado?.tipo === 'not_found_v3') {
+            console.log(`↩️ Intentando endpoint v3/url para IG...`);
+            const resultado2 = await descargarIGv2(linkOriginal);
+
+            if (resultado2?.tipo === 'privada') {
+                await msgCargando.edit({ content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.` });
+                return;
+            }
+            if (resultado2?.tipo === 'video') {
+                await enviarConBoton('video', resultado2);
+                console.log(`✅ Video subido (v3/url) para ${message.author.username}`);
+                return;
+            }
+            if (resultado2?.tipo === 'imagen') {
+                await enviarConBoton('imagen', resultado2);
+                console.log(`✅ Imagen subida (v3/url) para ${message.author.username}`);
+                return;
+            }
+        }
+
+        // ── CAPA 2: Fallback — no se pudo procesar, solo botón ──
+        console.log(`↩️ No se pudo procesar, enviando botón de fallback...`);
+        await new Promise(r => setTimeout(r, 1500));
+
+        const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+        const emojiRed = esInstagram ? '📸' : '🎵';
+        await msgCargando.edit({
+            content: `${emojiRed} **${message.author.displayName}** compartió algo de ${labelRed}:`,
+            components: [botonVer(esInstagram)]
         });
+        console.log(`↩️ Fallback con botón enviado para ${message.author.username}`);
+
+    } catch (err) {
+        console.error("❌ Error total en motor de videos:", err.message);
+        await msgCargando.edit({
+            content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
+        }).catch(() => {});
     }
 });
 
@@ -419,6 +670,21 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
+    console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
+
+    if (!process.env.TOKEN) {
+        console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO.");
+    } else {
+        console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+    }
+
+    if (!process.env.RAPIDAPI_KEY) {
+        console.log("⚠️  RAPIDAPI_KEY no configurada. Solo fallback de dominio activo.");
+    } else {
+        console.log(`✅ RapidAPI Key detectada. Comienza con: "${process.env.RAPIDAPI_KEY.substring(0, 5)}..."`);
+    }
+
+    console.log("🔑 Enviando señal de inicio de sesión a Discord...");
     client.login(process.env.TOKEN).catch(err => {
         console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
     });
