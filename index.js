@@ -18,7 +18,7 @@ const {
 } = require('discord.js');
 
 const { CronJob } = require('cron');
-const moment = require('moment-timezone');
+const momentTimezone = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 
@@ -136,7 +136,7 @@ client.once(Events.ClientReady, async () => {
                 );
 
                 await canalAnuncios.send({
-                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
+                    content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 horas por persona)*.',
                     components: [fila1, fila2]
                 });
                 console.log("📌 Botones de salas creados por primera vez.");
@@ -177,7 +177,7 @@ client.once(Events.ClientReady, async () => {
 
     try {
         new CronJob('0 0 0 * * *', async () => {
-            const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
+            const hoy = momentTimezone().tz('America/Argentina/Buenos_Aires').format('DD/MM');
             const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL).catch(() => null);
             
             if (canalDestino) {
@@ -214,9 +214,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        cooldowns.set(key, aerospace);
-        const ahoraUnix = Date.now();
-        cooldowns.set(key, ahoraUnix);
+        cooldowns.set(key, ahora);
 
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
@@ -318,7 +316,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================================
-// INTERCEPTOR INTELIGENTE: SEPARA REELS/TIKTOK DE FOTOS FIJAS
+// INTERCEPTOR MEJORADO: NO ROMPE NADA Y ASEGURA VISUALIZACIÓN
 // ==========================================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
@@ -336,88 +334,78 @@ client.on(Events.MessageCreate, async message => {
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; 
     const esInstagram = !!igMatch;
 
-    // 📸 DETECTAMOS SI ES UNA FOTO FIJA DE INSTAGRAM
-    // Las fotos en IG llevan el formato "/p/XXXX" a diferencia de los "/reel/"
+    // Generamos las URLs espejo idénticas a tu código base original para garantizar visualización nativa
+    const linkEspejo = esInstagram 
+        ? linkOriginal.replace(/instagram\.com/i, 'ddinstagram.com')
+        : linkOriginal.replace(/tiktok\.com/i, 'vxtiktok.com');
+
+    // Botón estético e interactivo inferior
+    const botonVer = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
+            .setStyle(ButtonStyle.Link)
+            .setURL(linkOriginal)
+    );
+
+    // 📸 SI ES UNA FOTO FIJA (/p/), SE COLOCA AL INSTANTE COMO ANTES (VISUALIZACIÓN GARANTIZADA)
     if (esInstagram && linkOriginal.toLowerCase().includes('/p/')) {
         try {
-            // Reemplazamos instagram.com por ddinstagram.com para forzar la visualización en Discord
-            const linkVisualizable = linkOriginal.replace(/instagram\.com/i, 'ddinstagram.com');
-
-            const botonVer = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setLabel('📸 Ver en Instagram')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(linkOriginal)
-            );
-
-            // Borramos el link original y mandamos la versión espejo que sí se visualiza al toque
             await message.delete().catch(() => {});
             await message.channel.send({
-                content: `📸 **${message.author.displayName}** compartió una foto:\n${linkVisualizable}`,
+                content: `📸 **${message.author.displayName}** compartió una foto:\n${linkEspejo}`,
                 components: [botonVer]
             });
-            console.log(`🖼️ Foto de IG procesada con DDInstagram para ${message.author.username}`);
+            console.log(`🖼️ Foto de IG procesada nativamente.`);
         } catch (err) {
-            console.error("❌ Falló el reemplazo de la foto:", err.message);
+            console.error("❌ Error enviando foto rápida:", err.message);
         }
-        return; // Cortamos acá para que no intente mandarlo a Hugging Face
+        return;
     }
 
-    // 📹 SI ES UN VIDEO (REEL O TIKTOK), VA DIRECTO AL COMPRESOR HUGGING FACE
+    // 📹 SI ES UN VIDEO (REEL O TIKTOK), INTENTAMOS EL COMPRESOR DE HUGGING FACE
     let msgCargando;
     
     try {
-        msgCargando = await message.channel.send(`⏳ Procesando y optimizando video de <@${message.author.id}>... (Si el motor dormía, puede tardar unos segundos)`);
+        // En lugar de borrar el mensaje al principio, dejamos que mande el aviso temporal
+        msgCargando = await message.channel.send(`⏳ Procesando y optimizando video de <@${message.author.id}>...`);
         await message.delete().catch(() => {});
 
+        // Mandamos la orden al encoder auxiliar gratis
         const respuestaHF = await axios.post(URL_COMPRESOR, {
             videoUrl: linkOriginal
         }, {
-            timeout: 50000 
+            timeout: 45000 // Le damos 45 segundos de margen
         });
 
-        const botonVer = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
-                .setStyle(ButtonStyle.Link)
-                .setURL(linkOriginal)
-        );
-
         if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
+            // Si Hugging Face procesó el video con éxito, incrustamos el MP4 ultra comprimido
             const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
             const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video.mp4' });
 
             await message.channel.send({
-                content: `Anuncio de video subido para **${message.author.displayName}**:`,
+                content: `📹 Video optimizado de **${message.author.displayName}**:`,
                 files: [adjunto],
                 components: [botonVer]
             });
 
             if (msgCargando) await msgCargando.delete().catch(() => {});
-            console.log(`✅ Video procesado por Hugging Face y subido para ${message.author.username}`);
+            console.log(`✅ Video incrustado exitosamente con compresión Hugging Face.`);
         } else {
-            throw new Error("Hugging Face no devolvió un archivo válido.");
+            throw new Error("Respuesta inválida del servidor.");
         }
 
     } catch (err) {
-        console.error("❌ Falló el procesamiento en Hugging Face:", err.message);
+        // 🚨 PLAN B DEFINITIVO (IGUAL A TU CODIGO ANTERIOR): Si falla Hugging Face, se visualiza al toque como antes
+        console.log(`⚠️ Servidor auxiliar falló o dio 500 (${err.message}). Aplicando previsualización nativa anterior.`);
         
         if (msgCargando) {
             await msgCargando.delete().catch(() => {});
         }
 
-        const botonVerFallback = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
-                .setStyle(ButtonStyle.Link)
-                .setURL(linkOriginal)
-        );
-
         await message.channel.send({
-            content: `📹 **${message.author.displayName}** compartió un enlace:\n🔗 ${linkOriginal}`,
-            components: [botonVerFallback]
+            content: `📹 **${message.author.displayName}** compartió:\n${linkEspejo}`,
+            components: [botonVer]
         });
-        console.log(`⚠️ Fallback enviado para ${message.author.username}`);
     }
 });
 
@@ -431,15 +419,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-    console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
-
-    if (!process.env.TOKEN) {
-        console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO.");
-    } else {
-        console.log(`✅ Token detectado. Comienza con: \"${process.env.TOKEN.substring(0, 5)}...\"`);
-    }
-
-    console.log("🔑 Enviando señal de inicio de sesión a Discord...");
     client.login(process.env.TOKEN).catch(err => {
         console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
     });
