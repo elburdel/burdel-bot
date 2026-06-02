@@ -43,8 +43,8 @@ let baseCumples = {};
 
 const mensajesCumple = [
     "¡Hoy se toma fuerte! 🍻 Feliz cumpleaños <@USER>, que pases una noche tremenda en El Burdel. 🎉",
-    "💥 ¡Atención comunidad! Hoy is el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
-    "🎂 ¡Feliz cumple <@USER>! Que arranques el día espectacular. Te mandamos un abrazo gigante de parte de toda la banda. 🎈",
+    "💥 ¡Atención comunidad! Hoy es el cumpleaños de <@USER>. Dejen su saludo y paguense una ronda. 🍾 ¡Felicidades fiera!",
+    "🎂 ¡Feliz cumple <@USER>! Que arranques el día spectacular. Te mandamos un abrazo gigante de parte de toda la banda. 🎈",
     "🥳 ¡Felicidades <@USER>! Un año más viejo pero más fanchero. Que explote ese festejo hoy. 💥🥂",
     "✨ Que las narguilas y los brindis no falten hoy. ¡Muy feliz cumpleaños <@USER>! Pasala de diez loco. 🛕🔥"
 ];
@@ -451,6 +451,15 @@ async function descargarIGv2(url) {
     }
 }
 
+// 🔀 FUNCIÓN MUTADORA (TERCER MOTOR DE SEGURIDAD)
+function generarLinkFallback(url, esInstagram) {
+    if (esInstagram) {
+        return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
+    } else {
+        return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
+    }
+}
+
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
@@ -474,6 +483,9 @@ client.on(Events.MessageCreate, async message => {
     const msgCargando = await message.channel.send(
         `⏳ Procesando video de <@${message.author.id}>...`
     );
+
+    // Guardamos el link mutado listo por si todo lo demás explota
+    const linkEspejoFallBack = generarLinkFallback(linkOriginal, esInstagram);
 
     try {
         console.log(`⚡ Iniciando flujo de descarga...`);
@@ -518,7 +530,7 @@ client.on(Events.MessageCreate, async message => {
             await msgCargando.delete().catch(() => {});
         }
 
-        // 🚨 CASO A: EL VIDEO ESTÁ PERO ES MUY GRANDE
+        // 🚨 CASO A: EL VIDEO EXISTE PERO EXCEDE LOS 9MB
         if (resultado?.tipo === 'muy_grande') {
             await msgCargando.edit(`⏳ El video es muy pesado. Comprimiendo en Hugging Face para Discord...`);
             console.log(`🚀 [HUGGING FACE] Enviando solicitud de compresión remota para: ${linkOriginal}`);
@@ -543,6 +555,13 @@ client.on(Events.MessageCreate, async message => {
                 }
             } catch (err) {
                 console.error("❌ Falló el compresor de Hugging Face:", err.message);
+                // Si HF falla por tamaño, saltamos al link espejo inteligente
+                console.log(`🔄 [FALLBACK TAMAÑO] HF caído. Mutando enlace a proxy interactivo...`);
+                await message.channel.send({
+                    content: `📹 **${message.author.displayName}** compartió un video pesado:\n${linkEspejoFallBack}`
+                });
+                await msgCargando.delete().catch(() => {});
+                return;
             }
         }
 
@@ -570,8 +589,7 @@ client.on(Events.MessageCreate, async message => {
             }
         }
 
-        // 🚨 CASO B [PLAN DE RESCATE]: RAPIDAPI DIO NULL O NOT_FOUND
-        // En lugar de rendirnos, le tiramos el link directo a Hugging Face para que Cobalt intente extraerlo.
+        // 🚨 CASO B [RESCATE HF]: RAPIDAPI DIO NULL O NOT_FOUND
         console.log(`🔄 [RESCATE HF] RapidAPI no detectó contenido. Invocando extracción directa en Hugging Face...`);
         await msgCargando.edit(`⏳ RapidAPI no pudo leer el enlace. Intentando rescate mediante el servidor auxiliar...`);
         
@@ -579,7 +597,7 @@ client.on(Events.MessageCreate, async message => {
             const respuestaHF = await axios.post(URL_COMPRESOR, { videoUrl: linkOriginal }, { timeout: 80000 });
             
             if (respuestaHF.data && respuestaHF.data.success && respuestaHF.data.base64Video) {
-                console.log(`📥 [RESCATE ÉXITO] Recibido Base64 desde el motor Cobalt de Hugging Face.`);
+                console.log(`📥 [RESCATE ÉXITO] Recibido Base64 desde el motor de Hugging Face.`);
                 const videoBuffer = Buffer.from(respuestaHF.data.base64Video, 'base64');
                 const adjunto = new AttachmentBuilder(videoBuffer, { name: 'burdel_video_rescatado.mp4' });
                 
@@ -590,25 +608,27 @@ client.on(Events.MessageCreate, async message => {
                 });
                 await msgCargando.delete().catch(() => {});
                 return;
+            } else {
+                throw new Error("Respuesta de rescate vacía o fallida");
             }
         } catch (hfErr) {
             console.error("❌ El plan de rescate de Hugging Face también falló:", hfErr.message);
+            
+            // 🔥 ULTRAPLAN DE EMERGENCIA: Si todo falla, tiramos el link mutado interactivo para que Discord lo reproduzca solo
+            console.log(`🎯 [EMERGENCIA FALLBACK] Activando tercer motor. Enviando link modificado: ${linkEspejoFallBack}`);
+            await message.channel.send({
+                content: `📹 **${message.author.displayName}** compartió un video:\n${linkEspejoFallBack}`
+            });
+            await msgCargando.delete().catch(() => {});
+            return;
         }
-
-        // Si fallaron absolutamente todos los motores, recién ahí ponemos el botón clásico
-        console.log(`⚠️ Flujo finalizado sin buffer en ningún motor. Enviando redirección básica.`);
-        const labelRed = esInstagram ? 'Instagram' : 'TikTok';
-        const emojiRed = esInstagram ? '📸' : '🎵';
-        await msgCargando.edit({
-            content: `${emojiRed} **${message.author.displayName}** compartió algo de ${labelRed}:`,
-            components: [botonVer(esInstagram)]
-        });
 
     } catch (err) {
         console.error("❌ Error crítico en motor de videos:", err.message);
-        await msgCargando.edit({
-            content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
-        }).catch(() => {});
+        await message.channel.send({
+            content: `📹 **${message.author.displayName}** compartió un enlace:\n${linkEspejoFallBack}`
+        });
+        await msgCargando.delete().catch(() => {});
     }
 });
 
