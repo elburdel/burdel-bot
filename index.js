@@ -303,10 +303,25 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const data = resp.data;
 
-            // Estructura real confirmada: contents[0].videos[0].url
+            // Detectar cuenta privada
+            const esPrivada = data?.metadata?.is_private === true
+                || data?.error?.toString().toLowerCase().includes('private')
+                || (data?.contents?.length === 0 && data?.error !== null);
+
+            if (esPrivada) {
+                console.log("🔒 RapidAPI IG: cuenta privada");
+                return { tipo: 'privada' };
+            }
+
+            // Video: contents[0].videos[0].url
             if (data?.contents?.[0]?.videos?.[0]?.url) {
                 videoUrl = data.contents[0].videos[0].url;
-                console.log(`✅ RapidAPI IG: URL encontrada (${data.contents[0].videos[0].label})`);
+                console.log(`✅ RapidAPI IG: video encontrado (${data.contents[0].videos[0].label})`);
+            // Imagen: contents[0].images[0].url
+            } else if (data?.contents?.[0]?.images?.[0]?.url) {
+                const imageUrl = data.contents[0].images[0].url;
+                console.log(`✅ RapidAPI IG: imagen encontrada`);
+                return { tipo: 'imagen', url: imageUrl };
             } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
@@ -341,6 +356,10 @@ async function descargarConRapidAPI(url, esInstagram) {
             if (data?.contents?.[0]?.videos?.[0]?.url) {
                 videoUrl = data.contents[0].videos[0].url;
                 console.log(`✅ RapidAPI TT: URL encontrada (${data.contents[0].videos[0].label || 'sin label'})`);
+            } else if (data?.contents?.[0]?.images?.[0]?.url) {
+                const imageUrl = data.contents[0].images[0].url;
+                console.log(`✅ RapidAPI TT: imagen encontrada`);
+                return { tipo: 'imagen', url: imageUrl };
             } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
@@ -360,10 +379,10 @@ async function descargarConRapidAPI(url, esInstagram) {
         const videoResp = await axios.get(videoUrl, {
             responseType: 'arraybuffer',
             timeout: 25000,
-            maxContentLength: 25 * 1024 * 1024 // límite 25MB (Discord permite 25MB en servidores sin boost)
+            maxContentLength: 25 * 1024 * 1024
         });
 
-        return Buffer.from(videoResp.data);
+        return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
         console.error("⚠️ RapidAPI falló:", err.message);
@@ -417,10 +436,20 @@ client.on(Events.MessageCreate, async message => {
 
     try {
         // ── CAPA 1: Intentar descarga real con RapidAPI ──
-        const buffer = await descargarConRapidAPI(linkOriginal, esInstagram);
+        const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
 
-        if (buffer) {
-            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
+        // Cuenta privada
+        if (resultado?.tipo === 'privada') {
+            await msgCargando.edit({
+                content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada, no se puede acceder.`
+            });
+            console.log(`🔒 Cuenta privada para ${message.author.username}`);
+            return;
+        }
+
+        // Video descargado
+        if (resultado?.tipo === 'video') {
+            const adjunto = new AttachmentBuilder(resultado.buffer, { name: 'burdel_video.mp4' });
             await message.channel.send({
                 content: `📹 **${message.author.displayName}** compartió un video:`,
                 files: [adjunto]
@@ -430,11 +459,28 @@ client.on(Events.MessageCreate, async message => {
             return;
         }
 
+        // Imagen: descargar y subir como archivo
+        if (resultado?.tipo === 'imagen') {
+            const imgResp = await axios.get(resultado.url, {
+                responseType: 'arraybuffer',
+                timeout: 15000
+            });
+            const ext = resultado.url.includes('.png') ? 'png' : 'jpg';
+            const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
+            await message.channel.send({
+                content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                files: [adjunto]
+            });
+            await msgCargando.delete().catch(() => {});
+            console.log(`✅ Imagen subida directa para ${message.author.username}`);
+            return;
+        }
+
         // ── CAPA 2: Fallback a ddinstagram / vxtiktok ──
         console.log(`↩️ RapidAPI sin resultado, usando fallback de dominio...`);
         const linkFallback = generarLinkFallback(linkOriginal, esInstagram);
 
-        // Delay anti-caché: Discord tarda ~1s en refrescar el embed
+        // Delay anti-caché
         await new Promise(r => setTimeout(r, 1500));
 
         await msgCargando.edit({
