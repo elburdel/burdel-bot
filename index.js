@@ -264,9 +264,13 @@ function extraerShortcodeIG(url) {
 }
 
 function extraerIdTikTok(url) {
-    // Soporta tiktok.com/@user/video/ID y URLs cortas vm.tiktok.com
+    // URL larga: tiktok.com/@user/video/ID
     const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
     return match ? match[1] : null;
+}
+
+function esUrlCortaTikTok(url) {
+    return /(?:vm|vt)\.tiktok\.com\//.test(url);
 }
 
 // ===================================================
@@ -313,29 +317,49 @@ async function descargarConRapidAPI(url, esInstagram) {
                 return { tipo: 'privada' };
             }
 
-            // Video: contents[0].videos[0].url
+            // Video
             if (data?.contents?.[0]?.videos?.[0]?.url) {
                 videoUrl = data.contents[0].videos[0].url;
                 console.log(`✅ RapidAPI IG: video encontrado (${data.contents[0].videos[0].label})`);
-            // Imagen: contents[0].images[0].url
+            // Imagen: distintos campos según el post
             } else if (data?.contents?.[0]?.images?.[0]?.url) {
-                const imageUrl = data.contents[0].images[0].url;
-                console.log(`✅ RapidAPI IG: imagen encontrada`);
-                return { tipo: 'imagen', url: imageUrl };
-            } else if (data?.renderableLinks?.[0]?.url) {
-                videoUrl = data.renderableLinks[0].url;
-            } else if (data?.videoUrl) {
-                videoUrl = data.videoUrl;
-            } else if (data?.video_url) {
-                videoUrl = data.video_url;
+                console.log(`✅ RapidAPI IG: imagen en contents[0].images`);
+                return { tipo: 'imagen', url: data.contents[0].images[0].url };
+            } else if (data?.contents?.[0]?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en display_url`);
+                return { tipo: 'imagen', url: data.contents[0].display_url };
+            } else if (data?.contents?.[0]?.image_url) {
+                console.log(`✅ RapidAPI IG: imagen en image_url`);
+                return { tipo: 'imagen', url: data.contents[0].image_url };
             } else {
-                console.log("⚠️ RapidAPI IG: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
+                const c0 = data?.contents?.[0];
+                console.log("⚠️ RapidAPI IG: no se encontró media");
+                console.log("⚠️ contents[0] keys:", c0 ? JSON.stringify(Object.keys(c0)) : 'vacío');
+                if (c0) console.log("⚠️ contents[0]:", JSON.stringify(c0).substring(0, 400));
             }
 
         } else {
-            // TikTok
-            const videoId = extraerIdTikTok(url);
-            if (!videoId) return null;
+            // TikTok — resolver URLs cortas (vt.tiktok.com, vm.tiktok.com)
+            let urlFinal = url;
+            if (esUrlCortaTikTok(url)) {
+                try {
+                    const redir = await axios.get(url, {
+                        maxRedirects: 5,
+                        timeout: 8000,
+                        headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' }
+                    });
+                    urlFinal = redir.request?.res?.responseUrl || redir.config?.url || url;
+                    console.log(`🔗 TikTok short URL resuelta: ${urlFinal}`);
+                } catch (e) {
+                    console.log("⚠️ No se pudo resolver URL corta de TikTok:", e.message);
+                }
+            }
+
+            const videoId = extraerIdTikTok(urlFinal);
+            if (!videoId) {
+                console.log("⚠️ No se pudo extraer ID de TikTok de:", urlFinal);
+                return null;
+            }
 
             const resp = await axios.get(
                 'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
@@ -352,14 +376,12 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const data = resp.data;
 
-            // Intentar estructura similar a IG: contents[0].videos[0].url
             if (data?.contents?.[0]?.videos?.[0]?.url) {
                 videoUrl = data.contents[0].videos[0].url;
-                console.log(`✅ RapidAPI TT: URL encontrada (${data.contents[0].videos[0].label || 'sin label'})`);
+                console.log(`✅ RapidAPI TT: video encontrado (${data.contents[0].videos[0].label || 'sin label'})`);
             } else if (data?.contents?.[0]?.images?.[0]?.url) {
-                const imageUrl = data.contents[0].images[0].url;
                 console.log(`✅ RapidAPI TT: imagen encontrada`);
-                return { tipo: 'imagen', url: imageUrl };
+                return { tipo: 'imagen', url: data.contents[0].images[0].url };
             } else if (data?.renderableLinks?.[0]?.url) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
@@ -416,7 +438,7 @@ client.on(Events.MessageCreate, async message => {
     const contenido = message.content;
 
     const igRegex = /(https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^\s]+)/gi;
-    const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+))/gi;
+    const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+|vt\.tiktok\.com\/[^\s]+))/gi;
 
     const igMatch = contenido.match(igRegex);
     const ttMatch = contenido.match(ttRegex);
