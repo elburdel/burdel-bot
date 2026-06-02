@@ -1,6 +1,6 @@
 const http = require('http');
 require('dotenv').config();
-const axios = require('axios'); // <-- Nueva librería para descargar
+const axios = require('axios');
 
 const {
     Client,
@@ -14,28 +14,28 @@ const {
     TextInputStyle,
     Events,
     MessageFlags,
-    AttachmentBuilder // <-- Necesario para subir archivos
+    AttachmentBuilder
 } = require('discord.js');
 
 const { CronJob } = require('cron');
 const moment = require('moment-timezone');
 
-const PORT = process.env.PORT || 10000; 
+const PORT = process.env.PORT || 10000;
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.MessageContent 
+        GatewayIntentBits.MessageContent
     ]
 });
 
 // IDs DE CANALES CONFIGURADOS
 const CANAL_BOTONES = '1507503587008188446';
-const CANAL_PRINCIPAL = '1424978392696229990'; 
-const CANAL_PANEL_CONTROL = '1508567294551392448'; 
-const CANAL_BASE_DATOS = '1508589852638052474'; 
+const CANAL_PRINCIPAL = '1424978392696229990';
+const CANAL_PANEL_CONTROL = '1508567294551392448';
+const CANAL_BASE_DATOS = '1508589852638052474';
 
 let baseCumples = {};
 
@@ -107,7 +107,7 @@ client.once(Events.ClientReady, async () => {
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 }).catch(() => null);
-        
+
         if (canalAnuncios && mensajes) {
             const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
 
@@ -158,7 +158,7 @@ client.once(Events.ClientReady, async () => {
         new CronJob('0 0 0 * * *', async () => {
             const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
             const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL).catch(() => null);
-            
+
             if (canalDestino) {
                 for (const [userId, fecha] of Object.entries(baseCumples)) {
                     if (fecha === hoy) {
@@ -181,7 +181,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const key = `${interaction.user.id}_${salaKey}`;
         const ahora = Date.now();
         if (cooldowns.has(key)) {
-            const tiempoPasado = telemetry - cooldowns.get(key);
+            const tiempoPasado = ahora - cooldowns.get(key);
             if (tiempoPasado < COOLDOWN_TIEMPO) {
                 const restante = Math.ceil((COOLDOWN_TIEMPO - tiempoPasado) / (1000 * 60 * 60));
                 await interaction.reply({ content: `⏳ Ya anunciaste esta sala hoy.\nVolvé en ${restante} horas.`, flags: [MessageFlags.Ephemeral] });
@@ -254,89 +254,218 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ===================================================
-// MOTOR ANIKILADOR DE LINKS: DESCARGA Y SUBIDA DIRECTA
+// HELPERS: EXTRAER SHORTCODE/ID DE URLs
 // ===================================================
+
+function extraerShortcodeIG(url) {
+    // Soporta /reel/CODE, /p/CODE, /tv/CODE
+    const match = url.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
+    return match ? match[1] : null;
+}
+
+function extraerIdTikTok(url) {
+    // Soporta tiktok.com/@user/video/ID y URLs cortas vm.tiktok.com
+    const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
+    return match ? match[1] : null;
+}
+
+// ===================================================
+// CAPA 1: DESCARGA REAL VÍA RAPIDAPI
+// Devuelve un Buffer del video, o null si falla
+// ===================================================
+
+async function descargarConRapidAPI(url, esInstagram) {
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) return null;
+
+    try {
+        let videoUrl = null;
+
+        if (esInstagram) {
+            const shortcode = extraerShortcodeIG(url);
+            if (!shortcode) return null;
+
+            const resp = await axios.get(
+                'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
+                {
+                    params: {
+                        shortcode,
+                        renderableFormats: '720p,highres'
+                    },
+                    headers: {
+                        'x-rapidapi-key': RAPIDAPI_KEY,
+                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+
+            // Buscar el primer link de video disponible en la respuesta
+            const data = resp.data;
+            if (data?.renderableLinks?.length > 0) {
+                videoUrl = data.renderableLinks[0].url;
+            } else if (data?.videoUrl) {
+                videoUrl = data.videoUrl;
+            } else if (data?.video_url) {
+                videoUrl = data.video_url;
+            }
+
+        } else {
+            // TikTok
+            const videoId = extraerIdTikTok(url);
+            if (!videoId) return null;
+
+            const resp = await axios.get(
+                'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
+                {
+                    params: { videoId },
+                    headers: {
+                        'x-rapidapi-key': RAPIDAPI_KEY,
+                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+
+            const data = resp.data;
+            if (data?.renderableLinks?.length > 0) {
+                videoUrl = data.renderableLinks[0].url;
+            } else if (data?.videoUrl) {
+                videoUrl = data.videoUrl;
+            } else if (data?.video?.playAddr) {
+                videoUrl = data.video.playAddr;
+            }
+        }
+
+        if (!videoUrl) return null;
+
+        // Descargar el binario del video
+        const videoResp = await axios.get(videoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 25000,
+            maxContentLength: 25 * 1024 * 1024 // límite 25MB (Discord permite 25MB en servidores sin boost)
+        });
+
+        return Buffer.from(videoResp.data);
+
+    } catch (err) {
+        console.error("⚠️ RapidAPI falló:", err.message);
+        return null;
+    }
+}
+
+// ===================================================
+// CAPA 2: FALLBACK — REDIRECCIÓN A DOMINIO ALTERNATIVO
+// Sin descarga, solo cambia el dominio para que Discord renderice
+// ===================================================
+
+function generarLinkFallback(url, esInstagram) {
+    if (esInstagram) {
+        return url
+            .replace('www.instagram.com', 'ddinstagram.com')
+            .replace('instagram.com', 'ddinstagram.com');
+    } else {
+        return url
+            .replace('www.tiktok.com', 'vxtiktok.com')
+            .replace('vm.tiktok.com', 'vxtiktok.com')
+            .replace('tiktok.com', 'vxtiktok.com');
+    }
+}
+
+// ===================================================
+// MOTOR PRINCIPAL: DETECTOR DE LINKS EN MENSAJES
+// Arquitectura: RapidAPI → ddinstagram/vxtiktok → link original
+// ===================================================
+
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
     const contenido = message.content;
-    const urlRegex = /(https?:\/\/(?:www\.)?(?:instagram\.com|tiktok\.com)\/[^\s]+)/gi;
-    const match = contenido.match(urlRegex);
 
-    if (!match) return;
+    const igRegex = /(https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^\s]+)/gi;
+    const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+))/gi;
 
-    const linkOriginal = match[0];
-    
+    const igMatch = contenido.match(igRegex);
+    const ttMatch = contenido.match(ttRegex);
+
+    if (!igMatch && !ttMatch) return;
+
+    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0]; // Limpiar parámetros UTM
+    const esInstagram = !!igMatch;
+
+    // Borrar mensaje original
+    await message.delete().catch(() => {});
+
+    // Mensaje de carga temporal
+    const msgCargando = await message.channel.send(
+        `⏳ Procesando video de <@${message.author.id}>...`
+    );
+
     try {
-        // Le avisamos a los chicos que el bot está procesando el video
-        const mensajeCargando = await message.channel.send(`⏳ Descargando video para <@${message.author.id}>...`);
-        
-        // Borramos el link feo original
-        await message.delete().catch(() => {});
+        // ── CAPA 1: Intentar descarga real con RapidAPI ──
+        const buffer = await descargarConRapidAPI(linkOriginal, esInstagram);
 
-        // Petición a la API de Cobalt para extraer el archivo mp4 directo
-        const respuestaCobalt = await axios.post('https://api.cobalt.tools/api/json', {
-            url: linkOriginal,
-            vQuality: '720', // Calidad balanceada para no pasarse del límite de Discord
-            isAudioOnly: false
-        }, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (respuestaCobalt.data && respuestaCobalt.data.url) {
-            const videoUrl = respuestaCobalt.data.url;
-
-            // Descargamos el archivo binario del video en un Buffer
-            const respuestaVideo = await axios.get(videoUrl, { responseType: 'arraybuffer' });
-            const videoBuffer = Buffer.from(respuestaVideo.data, 'binary');
-
-            // Creamos el adjunto para Discord
-            const adjunto = new AttachmentBuilder(videoBuffer, { name: 'el_burdel_video.mp4' });
-
-            // Subimos el archivo mp4 real
+        if (buffer) {
+            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
             await message.channel.send({
-                content: `👤 **Compartido por:** <@${message.author.id}>`,
+                content: `📹 **${message.author.displayName}** compartió un video:`,
                 files: [adjunto]
             });
-
-            // Borramos el cartelito de carga
-            await mensajeCargando.delete().catch(() => {});
-        } else {
-            throw new Error("No se obtuvo URL de descarga directa.");
+            await msgCargando.delete().catch(() => {});
+            console.log(`✅ Video subido directo para ${message.author.username}`);
+            return;
         }
 
-    } catch (err) {
-        console.error("❌ Error al descargar video con Cobalt:", err.message);
-        // Si falla por algún motivo (ej. video muy largo), dejamos el link limpio clásico como plan B
-        await message.channel.send({
-            content: `👤 **Compartido por:** <@${message.author.id}>\n🔗 *No se pudo procesar la descarga directa, acá está el link:* ${linkOriginal}`
+        // ── CAPA 2: Fallback a ddinstagram / vxtiktok ──
+        console.log(`↩️ RapidAPI sin resultado, usando fallback de dominio...`);
+        const linkFallback = generarLinkFallback(linkOriginal, esInstagram);
+
+        // Delay anti-caché: Discord tarda ~1s en refrescar el embed
+        await new Promise(r => setTimeout(r, 1500));
+
+        await msgCargando.edit({
+            content: `📹 **${message.author.displayName}**\n${linkFallback}`
         });
+        console.log(`↩️ Fallback enviado para ${message.author.username}`);
+
+    } catch (err) {
+        console.error("❌ Error total en motor de videos:", err.message);
+
+        // ── CAPA 3: Último recurso — link original limpio ──
+        await msgCargando.edit({
+            content: `📹 **${message.author.displayName}**\n${linkOriginal}`
+        }).catch(() => {});
     }
 });
 
 // ==========================================
-// EL MOTOR DEL ARRANQUE (SIEMPRE AL FINAL)
+// ARRANQUE DEL SERVIDOR HTTP (SIEMPRE AL FINAL)
 // ==========================================
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end("Bot online");
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end("Bot online");
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-  console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno de Render:");
-  
-  if (!process.env.TOKEN) {
-      console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO (undefined).");
-  } else {
-      console.log(`✅ Token detectado correctamente. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
-  }
+    console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
+    console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
 
-  console.log("🔑 Enviando señal de inicio de sesión a Discord...");
-  client.login(process.env.TOKEN).catch(err => {
-      console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
-  });
+    if (!process.env.TOKEN) {
+        console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO.");
+    } else {
+        console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+    }
+
+    if (!process.env.RAPIDAPI_KEY) {
+        console.log("⚠️  RAPIDAPI_KEY no configurada. Solo fallback de dominio activo.");
+    } else {
+        console.log(`✅ RapidAPI Key detectada. Comienza con: "${process.env.RAPIDAPI_KEY.substring(0, 5)}..."`);
+    }
+
+    console.log("🔑 Enviando señal de inicio de sesión a Discord...");
+    client.login(process.env.TOKEN).catch(err => {
+        console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
+    });
 });
