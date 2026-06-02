@@ -418,16 +418,23 @@ async function descargarConRapidAPI(url, esInstagram) {
 
         if (!videoUrl) return null;
 
-        // Descargar el binario del video
+        // Descargar el binario del video (límite 9MB para Discord sin boost)
+        const LIMITE_DISCORD = 9 * 1024 * 1024;
         const videoResp = await axios.get(videoUrl, {
             responseType: 'arraybuffer',
             timeout: 25000,
-            maxContentLength: 25 * 1024 * 1024
+            maxContentLength: LIMITE_DISCORD
         });
+
+
 
         return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
+        if (err.message && err.message.includes('maxContentLength')) {
+            console.log(`⚠️ Video demasiado grande para descargar`);
+            return { tipo: 'muy_grande' };
+        }
         if (err.response) {
             console.error(`⚠️ RapidAPI falló: ${err.message} — status: ${err.response.status}`);
             console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
@@ -474,10 +481,10 @@ async function descargarIGv2(url) {
 
         if (c0?.videos?.[0]?.url) {
             console.log(`✅ RapidAPI IG v3/url: video encontrado`);
-            const videoResp = await axios.get(c0.videos[0].url, {
-                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 25 * 1024 * 1024
+            const videoResp2 = await axios.get(c0.videos[0].url, {
+                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 9 * 1024 * 1024
             });
-            return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
+            return { tipo: 'video', buffer: Buffer.from(videoResp2.data) };
         } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
         else if (c0?.display_url)        return { tipo: 'imagen', url: c0.display_url };
         else if (c0?.image_url)          return { tipo: 'imagen', url: c0.image_url };
@@ -584,6 +591,18 @@ client.on(Events.MessageCreate, async message => {
                 });
             }
             await msgCargando.delete().catch(() => {});
+        }
+
+        // Video demasiado grande para Discord
+        if (resultado?.tipo === 'muy_grande') {
+            const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+            const emojiRed = esInstagram ? '📸' : '🎵';
+            await msgCargando.edit({
+                content: `${emojiRed} **${message.author.displayName}** compartió un video de ${labelRed} (muy pesado para subir):`,
+                components: [botonVer(esInstagram)]
+            });
+            console.log(`⚠️ Video muy grande, botón enviado para ${message.author.username}`);
+            return;
         }
 
         // Video descargado
