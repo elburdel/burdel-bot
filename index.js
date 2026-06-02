@@ -258,8 +258,15 @@ client.on(Events.InteractionCreate, async interaction => {
 // ===================================================
 
 function extraerShortcodeIG(url) {
-    // Soporta formatos actuales de Instagram
-    const match = url.match(/instagram\.com\\/(?:reel|reels|p|tv|share\/reel)\\/([A-Za-z0-9_-]+)/i);
+    const match = url.match(
+        /instagram\.com\/(?:reel|reels|p|tv|share\/reel)\/([A-Za-z0-9_-]+)/i
+    );
+
+    if (match) return match[1];
+
+    console.log('⚠️ No se pudo extraer shortcode IG de:', url);
+    return null;
+}
     if (match) return match[1];
 
     console.log('⚠️ No se pudo extraer shortcode IG de:', url);
