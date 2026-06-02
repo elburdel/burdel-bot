@@ -301,14 +301,24 @@ async function descargarConRapidAPI(url, esInstagram) {
                 }
             );
 
-            // Buscar el primer link de video disponible en la respuesta
+            // LOG COMPLETO para ver la estructura real que devuelve la API
             const data = resp.data;
+            console.log("🔍 RapidAPI IG respuesta (keys):", JSON.stringify(Object.keys(data)));
+            console.log("🔍 RapidAPI IG data completa:", JSON.stringify(data).substring(0, 800));
+
+            // Recorrer todas las estructuras posibles que puede devolver esta API
             if (data?.renderableLinks?.length > 0) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
                 videoUrl = data.videoUrl;
             } else if (data?.video_url) {
                 videoUrl = data.video_url;
+            } else if (data?.media?.video_url) {
+                videoUrl = data.media.video_url;
+            } else if (data?.data?.video_url) {
+                videoUrl = data.data.video_url;
+            } else if (data?.items?.[0]?.video_versions?.[0]?.url) {
+                videoUrl = data.items[0].video_versions[0].url;
             }
 
         } else {
@@ -330,12 +340,19 @@ async function descargarConRapidAPI(url, esInstagram) {
             );
 
             const data = resp.data;
+            console.log("🔍 RapidAPI TT respuesta (keys):", JSON.stringify(Object.keys(data)));
+            console.log("🔍 RapidAPI TT data completa:", JSON.stringify(data).substring(0, 800));
+
             if (data?.renderableLinks?.length > 0) {
                 videoUrl = data.renderableLinks[0].url;
             } else if (data?.videoUrl) {
                 videoUrl = data.videoUrl;
             } else if (data?.video?.playAddr) {
                 videoUrl = data.video.playAddr;
+            } else if (data?.data?.play) {
+                videoUrl = data.data.play;
+            } else if (data?.data?.wmplay) {
+                videoUrl = data.data.wmplay;
             }
         }
 
@@ -363,14 +380,11 @@ async function descargarConRapidAPI(url, esInstagram) {
 
 function generarLinkFallback(url, esInstagram) {
     if (esInstagram) {
-        return url
-            .replace('www.instagram.com', 'ddinstagram.com')
-            .replace('instagram.com', 'ddinstagram.com');
+        // Regex para reemplazar SOLO instagram.com (con o sin www) sin duplicar
+        return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
     } else {
-        return url
-            .replace('www.tiktok.com', 'vxtiktok.com')
-            .replace('vm.tiktok.com', 'vxtiktok.com')
-            .replace('tiktok.com', 'vxtiktok.com');
+        // Regex para reemplazar SOLO tiktok.com (con o sin www/vm) sin duplicar
+        return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
     }
 }
 
