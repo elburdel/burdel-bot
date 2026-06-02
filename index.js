@@ -355,8 +355,8 @@ async function descargarConRapidAPI(url, esInstagram) {
                 console.log(`✅ RapidAPI IG: imagen en data.display_url`);
                 return { tipo: 'imagen', url: data.display_url };
             } else {
-                console.log("⚠️ RapidAPI IG: no se encontró media en ningún campo conocido");
-                console.log("⚠️ Response completo:", JSON.stringify(data).substring(0, 800));
+                console.log("⚠️ RapidAPI IG endpoint v3: sin media, probando endpoint v2...");
+                return { tipo: 'not_found_v3' };
             }
 
         } else {
@@ -433,6 +433,67 @@ async function descargarConRapidAPI(url, esInstagram) {
             console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
         } else {
             console.error("⚠️ RapidAPI falló:", err.message);
+        }
+        return null;
+    }
+}
+
+// ===================================================
+// CAPA 1b: SEGUNDO INTENTO IG — endpoint v2 (acepta URL completa)
+// ===================================================
+
+async function descargarIGv2(url) {
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) return null;
+
+    try {
+        const resp = await axios.get(
+            'https://social-media-video-downloader.p.rapidapi.com/instagram/v2/media/by/url',
+            {
+                params: { url },
+                headers: {
+                    'x-rapidapi-key': RAPIDAPI_KEY,
+                    'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            }
+        );
+
+        const data = resp.data;
+        console.log("🔍 RapidAPI IG v2 — root keys:", JSON.stringify(Object.keys(data)));
+
+        const esPrivada = data?.metadata?.is_private === true
+            || data?.error?.toString().toLowerCase().includes('private');
+        if (esPrivada) return { tipo: 'privada' };
+
+        const c0 = data?.contents?.[0];
+
+        if (!c0 && data?.metadata?.thumbnailUrl)
+            return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
+
+        if (c0?.videos?.[0]?.url) {
+            console.log(`✅ RapidAPI IG v2: video encontrado`);
+            const videoResp = await axios.get(c0.videos[0].url, {
+                responseType: 'arraybuffer', timeout: 25000, maxContentLength: 25 * 1024 * 1024
+            });
+            return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
+        } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
+        else if (c0?.display_url)        return { tipo: 'imagen', url: c0.display_url };
+        else if (c0?.image_url)          return { tipo: 'imagen', url: c0.image_url };
+        else if (c0?.thumbnail_url)      return { tipo: 'imagen', url: c0.thumbnail_url };
+        else if (c0?.url)                return { tipo: 'imagen', url: c0.url };
+        else if (data?.url)              return { tipo: 'imagen', url: data.url };
+        else if (data?.display_url)      return { tipo: 'imagen', url: data.display_url };
+
+        console.log("⚠️ RapidAPI IG v2: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
+        return null;
+
+    } catch (err) {
+        if (err.response) {
+            console.error(`⚠️ RapidAPI IG v2 falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
+        } else {
+            console.error("⚠️ RapidAPI IG v2 falló:", err.message);
         }
         return null;
     }
@@ -524,17 +585,45 @@ client.on(Events.MessageCreate, async message => {
             return;
         }
 
-        // ── CAPA 2: Fallback a ddinstagram / vxtiktok ──
-        console.log(`↩️ RapidAPI sin resultado, usando fallback de dominio...`);
-        const linkFallback = generarLinkFallback(linkOriginal, esInstagram);
+        // ── CAPA 1b: Segundo intento IG con endpoint v2 ──
+        if (esInstagram && resultado?.tipo === 'not_found_v3') {
+            console.log(`↩️ Intentando endpoint v2 para IG...`);
+            const resultado2 = await descargarIGv2(linkOriginal);
 
-        // Delay anti-caché
+            if (resultado2?.tipo === 'privada') {
+                await msgCargando.edit({ content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.` });
+                return;
+            }
+            if (resultado2?.tipo === 'video') {
+                const adjunto = new AttachmentBuilder(resultado2.buffer, { name: 'burdel_video.mp4' });
+                await message.channel.send({ content: `📹 **${message.author.displayName}** compartió un video:`, files: [adjunto] });
+                await msgCargando.delete().catch(() => {});
+                console.log(`✅ Video subido directo (v2) para ${message.author.username}`);
+                return;
+            }
+            if (resultado2?.tipo === 'imagen') {
+                const imgResp = await axios.get(resultado2.url, { responseType: 'arraybuffer', timeout: 15000 });
+                const ext = resultado2.url.includes('.png') ? 'png' : 'jpg';
+                const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
+                await message.channel.send({ content: `🖼️ **${message.author.displayName}** compartió una imagen:`, files: [adjunto] });
+                await msgCargando.delete().catch(() => {});
+                console.log(`✅ Imagen subida directa (v2) para ${message.author.username}`);
+                return;
+            }
+        }
+
+        // ── CAPA 2: Fallback — link original (IG) o vxtiktok (TT) ──
+        console.log(`↩️ Endpoints fallaron, enviando link limpio...`);
         await new Promise(r => setTimeout(r, 1500));
 
+        const linkFinal = esInstagram
+            ? linkOriginal
+            : generarLinkFallback(linkOriginal, false);
+
         await msgCargando.edit({
-            content: `📹 **${message.author.displayName}**\n${linkFallback}`
+            content: `📹 **${message.author.displayName}** compartió:\n${linkFinal}`
         });
-        console.log(`↩️ Fallback enviado para ${message.author.username}`);
+        console.log(`↩️ Link limpio enviado para ${message.author.username}`);
 
     } catch (err) {
         console.error("❌ Error total en motor de videos:", err.message);
