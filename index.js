@@ -547,47 +547,62 @@ client.on(Events.MessageCreate, async message => {
         // ── CAPA 1: Intentar descarga real con RapidAPI ──
         const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
 
+        // Helper: construir botón "Ver en X"
+        const botonVer = (esIG) => new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(esIG ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
+                .setStyle(ButtonStyle.Link)
+                .setURL(linkOriginal)
+        );
+
         // Cuenta privada
         if (resultado?.tipo === 'privada') {
             await msgCargando.edit({
-                content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada, no se puede acceder.`
+                content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.`
             });
             console.log(`🔒 Cuenta privada para ${message.author.username}`);
             return;
         }
 
+        // Helper para enviar media con botón
+        async function enviarConBoton(tipo, datos) {
+            if (tipo === 'video') {
+                const adjunto = new AttachmentBuilder(datos.buffer, { name: 'burdel_video.mp4' });
+                await message.channel.send({
+                    content: `📹 **${message.author.displayName}** compartió un video:`,
+                    files: [adjunto],
+                    components: [botonVer(esInstagram)]
+                });
+            } else {
+                const imgResp = await axios.get(datos.url, { responseType: 'arraybuffer', timeout: 15000 });
+                const ext = datos.url.includes('.png') ? 'png' : 'jpg';
+                const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
+                await message.channel.send({
+                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                    files: [adjunto],
+                    components: [botonVer(esInstagram)]
+                });
+            }
+            await msgCargando.delete().catch(() => {});
+        }
+
         // Video descargado
         if (resultado?.tipo === 'video') {
-            const adjunto = new AttachmentBuilder(resultado.buffer, { name: 'burdel_video.mp4' });
-            await message.channel.send({
-                content: `📹 **${message.author.displayName}** compartió un video:`,
-                files: [adjunto]
-            });
-            await msgCargando.delete().catch(() => {});
-            console.log(`✅ Video subido directo para ${message.author.username}`);
+            await enviarConBoton('video', resultado);
+            console.log(`✅ Video subido para ${message.author.username}`);
             return;
         }
 
-        // Imagen: descargar y subir como archivo
+        // Imagen descargada
         if (resultado?.tipo === 'imagen') {
-            const imgResp = await axios.get(resultado.url, {
-                responseType: 'arraybuffer',
-                timeout: 15000
-            });
-            const ext = resultado.url.includes('.png') ? 'png' : 'jpg';
-            const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
-            await message.channel.send({
-                content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                files: [adjunto]
-            });
-            await msgCargando.delete().catch(() => {});
-            console.log(`✅ Imagen subida directa para ${message.author.username}`);
+            await enviarConBoton('imagen', resultado);
+            console.log(`✅ Imagen subida para ${message.author.username}`);
             return;
         }
 
-        // ── CAPA 1b: Segundo intento IG con endpoint v2 ──
+        // ── CAPA 1b: Segundo intento IG con endpoint v3/url ──
         if (esInstagram && resultado?.tipo === 'not_found_v3') {
-            console.log(`↩️ Intentando endpoint v2 para IG...`);
+            console.log(`↩️ Intentando endpoint v3/url para IG...`);
             const resultado2 = await descargarIGv2(linkOriginal);
 
             if (resultado2?.tipo === 'privada') {
@@ -595,42 +610,33 @@ client.on(Events.MessageCreate, async message => {
                 return;
             }
             if (resultado2?.tipo === 'video') {
-                const adjunto = new AttachmentBuilder(resultado2.buffer, { name: 'burdel_video.mp4' });
-                await message.channel.send({ content: `📹 **${message.author.displayName}** compartió un video:`, files: [adjunto] });
-                await msgCargando.delete().catch(() => {});
-                console.log(`✅ Video subido directo (v2) para ${message.author.username}`);
+                await enviarConBoton('video', resultado2);
+                console.log(`✅ Video subido (v3/url) para ${message.author.username}`);
                 return;
             }
             if (resultado2?.tipo === 'imagen') {
-                const imgResp = await axios.get(resultado2.url, { responseType: 'arraybuffer', timeout: 15000 });
-                const ext = resultado2.url.includes('.png') ? 'png' : 'jpg';
-                const adjunto = new AttachmentBuilder(Buffer.from(imgResp.data), { name: `burdel_imagen.${ext}` });
-                await message.channel.send({ content: `🖼️ **${message.author.displayName}** compartió una imagen:`, files: [adjunto] });
-                await msgCargando.delete().catch(() => {});
-                console.log(`✅ Imagen subida directa (v2) para ${message.author.username}`);
+                await enviarConBoton('imagen', resultado2);
+                console.log(`✅ Imagen subida (v3/url) para ${message.author.username}`);
                 return;
             }
         }
 
-        // ── CAPA 2: Fallback — link original (IG) o vxtiktok (TT) ──
-        console.log(`↩️ Endpoints fallaron, enviando link limpio...`);
+        // ── CAPA 2: Fallback — no se pudo procesar, solo botón ──
+        console.log(`↩️ No se pudo procesar, enviando botón de fallback...`);
         await new Promise(r => setTimeout(r, 1500));
 
-        const linkFinal = esInstagram
-            ? linkOriginal
-            : generarLinkFallback(linkOriginal, false);
-
+        const labelRed = esInstagram ? 'Instagram' : 'TikTok';
+        const emojiRed = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
-            content: `📹 **${message.author.displayName}** compartió:\n${linkFinal}`
+            content: `${emojiRed} **${message.author.displayName}** compartió algo de ${labelRed}:`,
+            components: [botonVer(esInstagram)]
         });
-        console.log(`↩️ Link limpio enviado para ${message.author.username}`);
+        console.log(`↩️ Fallback con botón enviado para ${message.author.username}`);
 
     } catch (err) {
         console.error("❌ Error total en motor de videos:", err.message);
-
-        // ── CAPA 3: Último recurso — link original limpio ──
         await msgCargando.edit({
-            content: `📹 **${message.author.displayName}**\n${linkOriginal}`
+            content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
         }).catch(() => {});
     }
 });
