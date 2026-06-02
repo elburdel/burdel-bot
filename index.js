@@ -307,15 +307,6 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const data = resp.data;
 
-            // Log diagnóstico siempre visible
-            console.log("🔍 RapidAPI IG — root keys:", JSON.stringify(Object.keys(data)));
-            console.log("🔍 RapidAPI IG — contents.length:", data?.contents?.length ?? 'undefined');
-            if (data?.contents?.length > 0) {
-                console.log("🔍 contents[0] keys:", JSON.stringify(Object.keys(data.contents[0])));
-                console.log("🔍 contents[0] preview:", JSON.stringify(data.contents[0]).substring(0, 600));
-            }
-            if (data?.metadata) console.log("🔍 metadata:", JSON.stringify(data.metadata).substring(0, 300));
-
             // Detectar cuenta privada - solo si la API lo dice explicitamente
             const esPrivada = data?.metadata?.is_private === true
                 || data?.error?.toString().toLowerCase().includes('private');
@@ -391,7 +382,6 @@ async function descargarConRapidAPI(url, esInstagram) {
                 return null;
             }
 
-            console.log('🔍 TikTok videoId a enviar:', videoId);
             const resp = await axios.get(
                 'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
                 {
