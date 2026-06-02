@@ -258,9 +258,12 @@ client.on(Events.InteractionCreate, async interaction => {
 // ===================================================
 
 function extraerShortcodeIG(url) {
-    // Soporta /reel/CODE, /p/CODE, /tv/CODE
-    const match = url.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
-    return match ? match[1] : null;
+    // Soporta formatos actuales de Instagram
+    const match = url.match(/instagram\.com\\/(?:reel|reels|p|tv|share\/reel)\\/([A-Za-z0-9_-]+)/i);
+    if (match) return match[1];
+
+    console.log('⚠️ No se pudo extraer shortcode IG de:', url);
+    return null;
 }
 
 function extraerIdTikTok(url) {
@@ -355,7 +358,7 @@ async function descargarConRapidAPI(url, esInstagram) {
                 console.log(`✅ RapidAPI IG: imagen en data.display_url`);
                 return { tipo: 'imagen', url: data.display_url };
             } else {
-                console.log("⚠️ RapidAPI IG endpoint v3: sin media, probando endpoint v2...");
+                console.log("⚠️ RapidAPI IG: sin media. Respuesta:", JSON.stringify(data).substring(0,1500));
                 return { tipo: 'not_found_v3' };
             }
 
@@ -446,7 +449,7 @@ async function descargarConRapidAPI(url, esInstagram) {
 }
 
 // ===================================================
-// CAPA 1b: SEGUNDO INTENTO IG — mismo endpoint v3 pero con URL completa en vez de shortcode
+// CAPA 1b: Diagnóstico adicional IG (el endpoint con URL completa suele devolver 400)
 // ===================================================
 
 async function descargarIGv2(url) {
