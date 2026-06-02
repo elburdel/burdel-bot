@@ -307,35 +307,60 @@ async function descargarConRapidAPI(url, esInstagram) {
 
             const data = resp.data;
 
+            // Log diagnóstico siempre visible
+            console.log("🔍 RapidAPI IG — root keys:", JSON.stringify(Object.keys(data)));
+            console.log("🔍 RapidAPI IG — contents.length:", data?.contents?.length ?? 'undefined');
+            if (data?.contents?.length > 0) {
+                console.log("🔍 contents[0] keys:", JSON.stringify(Object.keys(data.contents[0])));
+                console.log("🔍 contents[0] preview:", JSON.stringify(data.contents[0]).substring(0, 600));
+            }
+            if (data?.metadata) console.log("🔍 metadata:", JSON.stringify(data.metadata).substring(0, 300));
+
             // Detectar cuenta privada
             const esPrivada = data?.metadata?.is_private === true
                 || data?.error?.toString().toLowerCase().includes('private')
-                || (data?.contents?.length === 0 && data?.error !== null);
+                || (data?.contents?.length === 0 && data?.metadata?.is_private !== false);
 
             if (esPrivada) {
                 console.log("🔒 RapidAPI IG: cuenta privada");
                 return { tipo: 'privada' };
             }
 
+            const c0 = data?.contents?.[0];
+
             // Video
-            if (data?.contents?.[0]?.videos?.[0]?.url) {
-                videoUrl = data.contents[0].videos[0].url;
-                console.log(`✅ RapidAPI IG: video encontrado (${data.contents[0].videos[0].label})`);
-            // Imagen: distintos campos según el post
-            } else if (data?.contents?.[0]?.images?.[0]?.url) {
+            if (c0?.videos?.[0]?.url) {
+                videoUrl = c0.videos[0].url;
+                console.log(`✅ RapidAPI IG: video encontrado (${c0.videos[0].label})`);
+            // Imagen — múltiples rutas posibles según el endpoint
+            } else if (c0?.images?.[0]?.url) {
                 console.log(`✅ RapidAPI IG: imagen en contents[0].images`);
-                return { tipo: 'imagen', url: data.contents[0].images[0].url };
-            } else if (data?.contents?.[0]?.display_url) {
+                return { tipo: 'imagen', url: c0.images[0].url };
+            } else if (c0?.display_url) {
                 console.log(`✅ RapidAPI IG: imagen en display_url`);
-                return { tipo: 'imagen', url: data.contents[0].display_url };
-            } else if (data?.contents?.[0]?.image_url) {
+                return { tipo: 'imagen', url: c0.display_url };
+            } else if (c0?.image_url) {
                 console.log(`✅ RapidAPI IG: imagen en image_url`);
-                return { tipo: 'imagen', url: data.contents[0].image_url };
+                return { tipo: 'imagen', url: c0.image_url };
+            } else if (c0?.thumbnail_url) {
+                console.log(`✅ RapidAPI IG: imagen en thumbnail_url`);
+                return { tipo: 'imagen', url: c0.thumbnail_url };
+            } else if (c0?.url) {
+                console.log(`✅ RapidAPI IG: imagen en contents[0].url`);
+                return { tipo: 'imagen', url: c0.url };
+            // Algunos endpoints devuelven el array de medias en data.media directamente
+            } else if (data?.media?.[0]?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.media[0].url`);
+                return { tipo: 'imagen', url: data.media[0].url };
+            } else if (data?.url) {
+                console.log(`✅ RapidAPI IG: imagen en data.url`);
+                return { tipo: 'imagen', url: data.url };
+            } else if (data?.display_url) {
+                console.log(`✅ RapidAPI IG: imagen en data.display_url`);
+                return { tipo: 'imagen', url: data.display_url };
             } else {
-                const c0 = data?.contents?.[0];
-                console.log("⚠️ RapidAPI IG: no se encontró media");
-                console.log("⚠️ contents[0] keys:", c0 ? JSON.stringify(Object.keys(c0)) : 'vacío');
-                if (c0) console.log("⚠️ contents[0]:", JSON.stringify(c0).substring(0, 400));
+                console.log("⚠️ RapidAPI IG: no se encontró media en ningún campo conocido");
+                console.log("⚠️ Response completo:", JSON.stringify(data).substring(0, 800));
             }
 
         } else {
@@ -407,7 +432,12 @@ async function descargarConRapidAPI(url, esInstagram) {
         return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
 
     } catch (err) {
-        console.error("⚠️ RapidAPI falló:", err.message);
+        if (err.response) {
+            console.error(`⚠️ RapidAPI falló: ${err.message} — status: ${err.response.status}`);
+            console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
+        } else {
+            console.error("⚠️ RapidAPI falló:", err.message);
+        }
         return null;
     }
 }
