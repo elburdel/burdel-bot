@@ -21,6 +21,7 @@ const { CronJob } = require('cron');
 const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
+const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
 
 const client = new Client({
     intents: [
@@ -31,14 +32,10 @@ const client = new Client({
     ]
 });
 
-// IDs DE CANALES CONFIGURADOS
-const CANAL_BOTONES = '1507503587008188446';
-const CANAL_PRINCIPAL = '1424978392696229990';
+const CANAL_BOTONES       = '1507503587008188446';
+const CANAL_PRINCIPAL     = '1424978392696229990';
 const CANAL_PANEL_CONTROL = '1508567294551392448';
-const CANAL_BASE_DATOS = '1508589852638052474';
-
-// URL del servidor Hugging Face para comprimir videos grandes
-const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
+const CANAL_BASE_DATOS    = '1508589852638052474';
 
 let baseCumples = {};
 
@@ -51,14 +48,18 @@ const mensajesCumple = [
 ];
 
 const links = {
-    rojo: 'https://web-app.voicemaker.media/room-share.html?roomId=4838650&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
-    burdel: 'https://web-app.voicemaker.media/room-share.html?roomId=4431474&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
+    rojo:     'https://web-app.voicemaker.media/room-share.html?roomId=4838650&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
+    burdel:   'https://web-app.voicemaker.media/room-share.html?roomId=4431474&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
     bubbaloo: 'https://web-app.voicemaker.media/room-share.html?roomId=5086826&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7',
-    templo: 'https://web-app.voicemaker.media/room-share.html?roomId=4477382&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7'
+    templo:   'https://web-app.voicemaker.media/room-share.html?roomId=4477382&lang=es&shareUid=90993176&coinType=1&diamondType=2&catCoinType=7'
 };
 
 const cooldowns = new Map();
 const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
+
+// ─────────────────────────────────────────────
+// BACKUP / RESTAURACIÓN DE CUMPLEAÑOS
+// ─────────────────────────────────────────────
 
 async function respaldarEnDiscord() {
     try {
@@ -66,8 +67,7 @@ async function respaldarEnDiscord() {
         const mensajes = await canalBD.messages.fetch({ limit: 10 });
         const mensajesBackup = mensajes.filter(m => m.author.id === client.user.id);
         for (const msg of mensajesBackup.values()) { await msg.delete().catch(() => {}); }
-        const textoBackup = '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples);
-        await canalBD.send({ content: textoBackup });
+        await canalBD.send({ content: '||DB_CUMPLES_DATA||' + JSON.stringify(baseCumples) });
         console.log("💾 Datos respaldados con éxito.");
     } catch (e) { console.error("❌ Error al respaldar:", e); }
 }
@@ -78,8 +78,7 @@ async function recuperarDesdeDiscord() {
         const mensajesBD = await canalBD.messages.fetch({ limit: 5 });
         const backupNuevo = mensajesBD.find(m => m.content.startsWith('||DB_CUMPLES_DATA||'));
         if (backupNuevo) {
-            const jsonTexto = backupNuevo.content.replace('||DB_CUMPLES_DATA||', '');
-            baseCumples = JSON.parse(jsonTexto);
+            baseCumples = JSON.parse(backupNuevo.content.replace('||DB_CUMPLES_DATA||', ''));
             console.log("🧠 Memoria restaurada. Registros:", Object.keys(baseCumples).length);
             return;
         }
@@ -87,8 +86,7 @@ async function recuperarDesdeDiscord() {
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 });
         const backupViejo = mensajesPanel.find(m => m.content.startsWith('||BACKUP_CUMPLES||'));
         if (backupViejo) {
-            const jsonTextoViejo = backupViejo.content.replace('||BACKUP_CUMPLES||', '');
-            baseCumples = JSON.parse(jsonTextoViejo);
+            baseCumples = JSON.parse(backupViejo.content.replace('||BACKUP_CUMPLES||', ''));
             await respaldarEnDiscord();
             console.log("🦅 Herencia de datos migrada con éxito.");
         } else {
@@ -101,6 +99,10 @@ async function recuperarDesdeDiscord() {
     }
 }
 
+// ─────────────────────────────────────────────
+// INICIO DEL BOT
+// ─────────────────────────────────────────────
+
 client.once(Events.ClientReady, async () => {
     console.log("===============================================");
     console.log(`🤖 ¡BOT ONLINE EN DISCORD! Conectado como: ${client.user.tag}`);
@@ -110,21 +112,17 @@ client.once(Events.ClientReady, async () => {
     try {
         const canalAnuncios = await client.channels.fetch(CANAL_BOTONES);
         const mensajes = await canalAnuncios.messages.fetch({ limit: 10 }).catch(() => null);
-
         if (canalAnuncios && mensajes) {
             const yaTieneBotones = mensajes.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE ANUNCIOS"));
-
             if (!yaTieneBotones) {
                 const fila1 = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('btn_rojo').setLabel('🔴 EL CUARTO ROJO').setStyle(ButtonStyle.Danger),
                     new ButtonBuilder().setCustomId('btn_burdel').setLabel('🍻 EL BURDEL').setStyle(ButtonStyle.Primary)
                 );
-
                 const fila2 = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('btn_bubbaloo').setLabel('🍬 BUBBALOO TEAM').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId('btn_templo').setLabel('🛕 EL TEMPLO').setStyle(ButtonStyle.Secondary)
                 );
-
                 await canalAnuncios.send({
                     content: '🔥 **PANEL DE ANUNCIOS DE SALAS** 🔥\nPresioná el botón de tu sala para avisar que abriste. *(Límite de un aviso cada 4 hours por persona)*.',
                     components: [fila1, fila2]
@@ -137,17 +135,14 @@ client.once(Events.ClientReady, async () => {
     try {
         const canalPanel = await client.channels.fetch(CANAL_PANEL_CONTROL);
         const mensajesPanel = await canalPanel.messages.fetch({ limit: 10 }).catch(() => null);
-
         if (canalPanel && mensajesPanel) {
             const yaTienePanel = mensajesPanel.some(m => m.author.id === client.user.id && m.content.includes("PANEL DE CONTROL GENERAL"));
-
             if (!yaTienePanel) {
                 const filaControl = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('admin_ver_cumples').setLabel('🔵 VER CUMPLEAÑOS').setStyle(ButtonStyle.Primary),
                     new ButtonBuilder().setCustomId('admin_agregar_cumple').setLabel('🟢 AGREGAR CUMPLE').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId('admin_borrar_cumple').setLabel('🔴 BORRAR CUMPLE').setStyle(ButtonStyle.Danger)
                 );
-
                 await canalPanel.send({
                     content: '🛠️ **PANEL DE CONTROL GENERAL DEL BOT** 🛠️\nManejá los cumpleaños de los chicos usando los botones interactivos de abajo.',
                     components: [filaControl]
@@ -161,13 +156,11 @@ client.once(Events.ClientReady, async () => {
         new CronJob('0 0 0 * * *', async () => {
             const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
             const canalDestino = await client.channels.fetch(CANAL_PRINCIPAL).catch(() => null);
-
             if (canalDestino) {
                 for (const [userId, fecha] of Object.entries(baseCumples)) {
                     if (fecha === hoy) {
-                        const fraseElegida = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
-                        const mensajeFinal = fraseElegida.replace('<@USER>', `<@${userId}>`);
-                        await canalDestino.send(mensajeFinal);
+                        const frase = mensajesCumple[Math.floor(Math.random() * mensajesCumple.length)];
+                        await canalDestino.send(frase.replace('<@USER>', `<@${userId}>`));
                     }
                 }
             }
@@ -175,11 +168,15 @@ client.once(Events.ClientReady, async () => {
     } catch(err) { console.error("❌ Error al armar el CronJob:", err); }
 });
 
+// ─────────────────────────────────────────────
+// INTERACCIONES (botones, modals, etc.)
+// ─────────────────────────────────────────────
+
 const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
-        let salaKey = interaction.customId.replace('btn_', '');
+        const salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
         const key = `${interaction.user.id}_${salaKey}`;
         const ahora = Date.now();
@@ -195,10 +192,10 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             const canalPrincipal = await client.channels.fetch(CANAL_PRINCIPAL);
             const mensajes = {
-                rojo: `🔴 ${interaction.user.username} abrió El Cuarto Rojo\n\n🔥 Entren acá:\n${links.rojo}`,
-                burdel: `🔥 ${interaction.user.username} abrió El Burdel\n\n🍻 Caigan:\n${links.burdel}`,
+                rojo:     `🔴 ${interaction.user.username} abrió El Cuarto Rojo\n\n🔥 Entren acá:\n${links.rojo}`,
+                burdel:   `🔥 ${interaction.user.username} abrió El Burdel\n\n🍻 Caigan:\n${links.burdel}`,
                 bubbaloo: `🍬 ${interaction.user.username} abrió Bubbaloo Team\n\n✨ Entren:\n${links.bubbaloo}`,
-                templo: `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.templo}`
+                templo:   `🛕 ${interaction.user.username} abrió El Templo\n\n⚡ Pasen:\n${links.templo}`
             };
             await canalPrincipal.send(mensajes[salaKey]);
             await interaction.reply({ content: `✅ ¡Sala **${salaKey.toUpperCase()}** anunciada!`, flags: [MessageFlags.Ephemeral] });
@@ -256,366 +253,23 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// ===================================================
-// HELPERS: EXTRAER SHORTCODE/ID DE URLs
-// ===================================================
-
-function extraerShortcodeIG(url) {
-    const match = url.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
-    return match ? match[1] : null;
-}
-
-function extraerIdTikTok(url) {
-    const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
-    return match ? match[1] : null;
-}
-
-function esUrlCortaTikTok(url) {
-    return /(?:vm|vt)\.tiktok\.com\//.test(url);
-}
-
-// ===================================================
-// CAPA HUGGING FACE: Comprime video largo a < 9MB
-// Recibe la URL directa del video (ya resuelta por RapidAPI)
-// ===================================================
-
-async function comprimirConHuggingFace(videoUrl) {
-    if (!HUGGING_FACE_URL) {
-        console.log("⚠️ HUGGING_FACE_URL no configurada, saltando compresión.");
-        return null;
-    }
-    try {
-        console.log(`📦 Enviando a Hugging Face para comprimir: ${videoUrl.substring(0, 80)}...`);
-        const resp = await axios.post(
-            `${HUGGING_FACE_URL}/compress`,
-            { videoUrl },
-            { timeout: 120000 } // 2 minutos para videos largos
-        );
-        if (resp.data?.success && resp.data?.base64Video) {
-            const buffer = Buffer.from(resp.data.base64Video, 'base64');
-            console.log(`✅ Hugging Face comprimió el video. Tamaño final: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
-            return { tipo: 'video', buffer };
-        }
-        console.log("⚠️ Hugging Face respondió sin video:", JSON.stringify(resp.data).substring(0, 200));
-        return null;
-    } catch (err) {
-        console.error("⚠️ Error al comprimir con Hugging Face:", err.message);
-        return null;
-    }
-}
-
-// ===================================================
-// CAPA 1: DESCARGA REAL VÍA RAPIDAPI
-// Devuelve un Buffer del video, o null si falla
-// ===================================================
-
-async function descargarConRapidAPI(url, esInstagram) {
-    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    if (!RAPIDAPI_KEY) return null;
-
-    try {
-        let videoUrl = null;
-
-        if (esInstagram) {
-            const shortcode = extraerShortcodeIG(url);
-            if (!shortcode) return null;
-
-            const resp = await axios.get(
-                'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
-                {
-                    params: { shortcode, renderableFormats: '720p,highres' },
-                    headers: {
-                        'x-rapidapi-key': RAPIDAPI_KEY,
-                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 15000
-                }
-            );
-
-            const data = resp.data;
-
-            const esPrivada = data?.metadata?.is_private === true
-                || data?.error?.toString().toLowerCase().includes('private');
-
-            if (esPrivada) {
-                console.log("🔒 RapidAPI IG: cuenta privada");
-                return { tipo: 'privada' };
-            }
-
-            const c0 = data?.contents?.[0];
-
-            if (!c0 && data?.metadata?.thumbnailUrl) {
-                console.log('✅ RapidAPI IG: imagen en metadata.thumbnailUrl');
-                return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
-            }
-
-            if (c0?.videos?.[0]?.url) {
-                videoUrl = c0.videos[0].url;
-                console.log(`✅ RapidAPI IG: video encontrado (${c0.videos[0].label})`);
-            } else if (c0?.images?.[0]?.url) {
-                console.log(`✅ RapidAPI IG: imagen en contents[0].images`);
-                return { tipo: 'imagen', url: c0.images[0].url };
-            } else if (c0?.display_url) {
-                console.log(`✅ RapidAPI IG: imagen en display_url`);
-                return { tipo: 'imagen', url: c0.display_url };
-            } else if (c0?.image_url) {
-                console.log(`✅ RapidAPI IG: imagen en image_url`);
-                return { tipo: 'imagen', url: c0.image_url };
-            } else if (c0?.thumbnail_url) {
-                console.log(`✅ RapidAPI IG: imagen en thumbnail_url`);
-                return { tipo: 'imagen', url: c0.thumbnail_url };
-            } else if (c0?.url) {
-                console.log(`✅ RapidAPI IG: imagen en contents[0].url`);
-                return { tipo: 'imagen', url: c0.url };
-            } else if (data?.media?.[0]?.url) {
-                console.log(`✅ RapidAPI IG: imagen en data.media[0].url`);
-                return { tipo: 'imagen', url: data.media[0].url };
-            } else if (data?.url) {
-                console.log(`✅ RapidAPI IG: imagen en data.url`);
-                return { tipo: 'imagen', url: data.url };
-            } else if (data?.display_url) {
-                console.log(`✅ RapidAPI IG: imagen en data.display_url`);
-                return { tipo: 'imagen', url: data.display_url };
-            } else {
-                console.log("⚠️ RapidAPI IG endpoint v3: sin media, probando endpoint v2...");
-                return { tipo: 'not_found_v3' };
-            }
-
-        } else {
-            // TikTok — resolver URLs cortas
-            let urlFinal = url;
-            if (esUrlCortaTikTok(url)) {
-                try {
-                    const redir = await axios.get(url, {
-                        maxRedirects: 5,
-                        timeout: 8000,
-                        headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' }
-                    });
-                    urlFinal = redir.request?.res?.responseUrl || redir.config?.url || url;
-                    console.log(`🔗 TikTok short URL resuelta: ${urlFinal}`);
-                } catch (e) {
-                    console.log("⚠️ No se pudo resolver URL corta de TikTok:", e.message);
-                }
-            }
-
-            const videoId = extraerIdTikTok(urlFinal);
-            if (!videoId) {
-                console.log("⚠️ No se pudo extraer ID de TikTok de:", urlFinal);
-                return null;
-            }
-
-            const resp = await axios.get(
-                'https://social-media-video-downloader.p.rapidapi.com/tiktok/v3/post/details',
-                {
-                    params: { videoId, id: videoId, url: urlFinal },
-                    headers: {
-                        'x-rapidapi-key': RAPIDAPI_KEY,
-                        'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 15000
-                }
-            );
-
-            const data = resp.data;
-
-            if (data?.contents?.[0]?.videos?.[0]?.url) {
-                videoUrl = data.contents[0].videos[0].url;
-                console.log(`✅ RapidAPI TT: video encontrado (${data.contents[0].videos[0].label || 'sin label'})`);
-            } else if (data?.contents?.[0]?.images?.[0]?.url) {
-                console.log(`✅ RapidAPI TT: imagen encontrada`);
-                return { tipo: 'imagen', url: data.contents[0].images[0].url };
-            } else if (data?.renderableLinks?.[0]?.url) {
-                videoUrl = data.renderableLinks[0].url;
-            } else if (data?.videoUrl) {
-                videoUrl = data.videoUrl;
-            } else if (data?.video?.playAddr) {
-                videoUrl = data.video.playAddr;
-            } else if (data?.data?.play) {
-                videoUrl = data.data.play;
-            } else {
-                console.log("⚠️ RapidAPI TT: estructura desconocida, keys:", JSON.stringify(Object.keys(data)));
-            }
-        }
-
-        if (!videoUrl) return null;
-
-        // ── INTENTAR DESCARGA DIRECTA (límite 9MB) ──
-        const LIMITE_DISCORD = 9 * 1024 * 1024;
-        try {
-            const videoResp = await axios.get(videoUrl, {
-                responseType: 'arraybuffer',
-                timeout: 25000,
-                maxContentLength: LIMITE_DISCORD
-            });
-            return { tipo: 'video', buffer: Buffer.from(videoResp.data) };
-        } catch (errDescarga) {
-            // Si es demasiado grande, enviarlo a Hugging Face para comprimir
-            if (errDescarga.message && errDescarga.message.includes('maxContentLength')) {
-                console.log(`⚠️ Video supera 9MB — enviando a Hugging Face para comprimir...`);
-                const resultadoHF = await comprimirConHuggingFace(videoUrl);
-                if (resultadoHF) return resultadoHF;
-                // Si HF también falló, devolver muy_grande para mostrar solo el botón
-                return { tipo: 'muy_grande' };
-            }
-            throw errDescarga;
-        }
-
-    } catch (err) {
-        if (err.response) {
-            console.error(`⚠️ RapidAPI falló: ${err.message} — status: ${err.response.status}`);
-            console.error("⚠️ RapidAPI error body:", JSON.stringify(err.response.data).substring(0, 400));
-        } else {
-            console.error("⚠️ RapidAPI falló:", err.message);
-        }
-        return null;
-    }
-}
-
-// ===================================================
-// CAPA 1b: SEGUNDO INTENTO IG — endpoint v3 con URL completa
-// ===================================================
-
-async function descargarIGv2(url) {
-    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    if (!RAPIDAPI_KEY) return null;
-
-    try {
-        const resp = await axios.get(
-            'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
-            {
-                params: { url, renderableFormats: '720p,highres' },
-                headers: {
-                    'x-rapidapi-key': RAPIDAPI_KEY,
-                    'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
-                    'Content-Type': 'application/json'
-                },
-                timeout: 15000
-            }
-        );
-
-        const data = resp.data;
-        console.log("🔍 RapidAPI IG v3/url — root keys:", JSON.stringify(Object.keys(data)));
-
-        const esPrivada = data?.metadata?.is_private === true
-            || data?.error?.toString().toLowerCase().includes('private');
-        if (esPrivada) return { tipo: 'privada' };
-
-        const c0 = data?.contents?.[0];
-
-        if (!c0 && data?.metadata?.thumbnailUrl)
-            return { tipo: 'imagen', url: data.metadata.thumbnailUrl };
-
-        if (c0?.videos?.[0]?.url) {
-            console.log(`✅ RapidAPI IG v3/url: video encontrado`);
-            const LIMITE_DISCORD = 9 * 1024 * 1024;
-            try {
-                const videoResp2 = await axios.get(c0.videos[0].url, {
-                    responseType: 'arraybuffer', timeout: 25000, maxContentLength: LIMITE_DISCORD
-                });
-                return { tipo: 'video', buffer: Buffer.from(videoResp2.data) };
-            } catch (errDescarga) {
-                if (errDescarga.message && errDescarga.message.includes('maxContentLength')) {
-                    console.log(`⚠️ Video v3/url supera 9MB — enviando a Hugging Face...`);
-                    const resultadoHF = await comprimirConHuggingFace(c0.videos[0].url);
-                    if (resultadoHF) return resultadoHF;
-                    return { tipo: 'muy_grande' };
-                }
-                throw errDescarga;
-            }
-        } else if (c0?.images?.[0]?.url) return { tipo: 'imagen', url: c0.images[0].url };
-        else if (c0?.display_url)        return { tipo: 'imagen', url: c0.display_url };
-        else if (c0?.image_url)          return { tipo: 'imagen', url: c0.image_url };
-        else if (c0?.thumbnail_url)      return { tipo: 'imagen', url: c0.thumbnail_url };
-        else if (c0?.url)                return { tipo: 'imagen', url: c0.url };
-        else if (data?.url)              return { tipo: 'imagen', url: data.url };
-        else if (data?.display_url)      return { tipo: 'imagen', url: data.display_url };
-
-        console.log("⚠️ RapidAPI IG v3/url: sin media tampoco. Keys:", JSON.stringify(Object.keys(data)));
-        return null;
-
-    } catch (err) {
-        if (err.response) {
-            console.error(`⚠️ RapidAPI IG v3/url falló: ${err.message} — body:`, JSON.stringify(err.response.data).substring(0, 300));
-        } else {
-            console.error("⚠️ RapidAPI IG v3/url falló:", err.message);
-        }
-        return null;
-    }
-}
-
-// ===================================================
-// CAPA 2: FALLBACK — REDIRECCIÓN A DOMINIO ALTERNATIVO
-// ===================================================
-
-function generarLinkFallback(url, esInstagram) {
-    if (esInstagram) {
-        return url.replace(/(?:www\.)?instagram\.com/, 'ddinstagram.com');
-    } else {
-        return url.replace(/(?:www\.|vm\.)?tiktok\.com/, 'vxtiktok.com');
-    }
-}
-
-// ===================================================
-// HELPER: descargar imagen y preservar dimensiones reales
-// Discord renderiza imágenes portrait (verticales) cortadas si no
-// se especifican width/height. Al pasarle las dimensiones reales
-// en el AttachmentBuilder, Discord las muestra completas.
-// ===================================================
-
-async function descargarImagen(imgUrl) {
-    const imgResp = await axios.get(imgUrl, { responseType: 'arraybuffer', timeout: 15000 });
-    const buffer = Buffer.from(imgResp.data);
-
-    // Intentar extraer dimensiones del header PNG/JPEG sin librerías extra
-    let width = null, height = null;
-    try {
-        if (buffer[0] === 0x89 && buffer[1] === 0x50) {
-            // PNG: width en bytes 16-19, height en bytes 20-23
-            width  = buffer.readUInt32BE(16);
-            height = buffer.readUInt32BE(20);
-        } else if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
-            // JPEG: buscar marcador SOF (0xFFC0 / 0xFFC2)
-            let i = 2;
-            while (i < buffer.length - 8) {
-                if (buffer[i] === 0xFF) {
-                    const marker = buffer[i + 1];
-                    if (marker === 0xC0 || marker === 0xC2) {
-                        height = buffer.readUInt16BE(i + 5);
-                        width  = buffer.readUInt16BE(i + 7);
-                        break;
-                    }
-                    const segLen = buffer.readUInt16BE(i + 2);
-                    i += 2 + segLen;
-                } else { i++; }
-            }
-        }
-    } catch (e) { /* si no se puede leer, no pasa nada */ }
-
-    const ext = imgUrl.includes('.png') ? 'png' : 'jpg';
-    return { buffer, ext, width, height };
-}
-
-// ===================================================
-// MOTOR PRINCIPAL: DETECTOR DE LINKS EN MENSAJES
-// ===================================================
+// ─────────────────────────────────────────────
+// MOTOR DE VIDEOS — todo via Hugging Face
+// ─────────────────────────────────────────────
 
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
     const contenido = message.content;
-
     const igRegex = /(https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^\s]+)/gi;
     const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+|vt\.tiktok\.com\/[^\s]+))/gi;
 
     const igMatch = contenido.match(igRegex);
     const ttMatch = contenido.match(ttRegex);
-
     if (!igMatch && !ttMatch) return;
 
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
-    const esInstagram = !!igMatch;
+    const esInstagram  = !!igMatch;
 
     await message.delete().catch(() => {});
 
@@ -623,146 +277,131 @@ client.on(Events.MessageCreate, async message => {
         `⏳ Procesando video de <@${message.author.id}>...`
     );
 
-    try {
-        const resultado = await descargarConRapidAPI(linkOriginal, esInstagram);
+    const botonVer = () => new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
+            .setStyle(ButtonStyle.Link)
+            .setURL(linkOriginal)
+    );
 
-        const botonVer = (esIG) => new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setLabel(esIG ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
-                .setStyle(ButtonStyle.Link)
-                .setURL(linkOriginal)
+    // Si no hay Hugging Face configurado, solo mostrar botón
+    if (!HUGGING_FACE_URL) {
+        const red = esInstagram ? 'Instagram' : 'TikTok';
+        const emoji = esInstagram ? '📸' : '🎵';
+        await msgCargando.edit({
+            content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
+            components: [botonVer()]
+        });
+        console.log(`⚠️ HUGGING_FACE_URL no configurada, solo botón para ${message.author.username}`);
+        return;
+    }
+
+    try {
+        console.log(`🔄 Enviando a Hugging Face: ${linkOriginal}`);
+
+        const resp = await axios.post(
+            `${HUGGING_FACE_URL}/process`,
+            { videoUrl: linkOriginal },
+            { timeout: 120000 }
         );
 
-        if (resultado?.tipo === 'privada') {
-            await msgCargando.edit({
-                content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.`
-            });
-            console.log(`🔒 Cuenta privada para ${message.author.username}`);
-            return;
+        const resultado = resp.data;
+
+        if (!resultado?.success) {
+            throw new Error(resultado?.error || 'Hugging Face devolvió error');
         }
 
-        // Helper: enviar media con botón
-        async function enviarConBoton(tipo, datos) {
-            if (tipo === 'video') {
-                const adjunto = new AttachmentBuilder(datos.buffer, { name: 'burdel_video.mp4' });
-                await message.channel.send({
-                    content: `📹 **${message.author.displayName}** compartió un video:`,
-                    files: [adjunto],
-                    components: [botonVer(esInstagram)]
-                });
-            } else {
-                // CORRECCIÓN: descargar imagen y pasar dimensiones reales a Discord
-                const { buffer, ext, width, height } = await descargarImagen(datos.url);
-                const adjunto = new AttachmentBuilder(buffer, { name: `burdel_imagen.${ext}` });
-                // Pasar dimensiones para que Discord renderice la imagen completa (sin crop)
-                if (width && height) {
-                    adjunto.setDescription(`${width}x${height}`);
+        // ── Es imagen ──
+        if (resultado.tipo === 'imagen') {
+            const buffer = Buffer.from(resultado.base64, 'base64');
+
+            // Leer dimensiones reales para que Discord no corte el preview
+            let width = null, height = null;
+            try {
+                if (buffer[0] === 0x89 && buffer[1] === 0x50) {
+                    width  = buffer.readUInt32BE(16);
+                    height = buffer.readUInt32BE(20);
+                } else if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+                    let i = 2;
+                    while (i < buffer.length - 8) {
+                        if (buffer[i] === 0xFF) {
+                            const marker = buffer[i + 1];
+                            if (marker === 0xC0 || marker === 0xC2) {
+                                height = buffer.readUInt16BE(i + 5);
+                                width  = buffer.readUInt16BE(i + 7);
+                                break;
+                            }
+                            i += 2 + buffer.readUInt16BE(i + 2);
+                        } else { i++; }
+                    }
                 }
-                await message.channel.send({
-                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                    files: [adjunto],
-                    components: [botonVer(esInstagram)]
-                });
-            }
-            await msgCargando.delete().catch(() => {});
-        }
+            } catch(e) {}
 
-        // Video demasiado grande (HF no disponible o también falló)
-        if (resultado?.tipo === 'muy_grande') {
-            const labelRed = esInstagram ? 'Instagram' : 'TikTok';
-            const emojiRed = esInstagram ? '📸' : '🎵';
-            await msgCargando.edit({
-                content: `${emojiRed} **${message.author.displayName}** compartió un video de ${labelRed} (muy pesado para subir):`,
-                components: [botonVer(esInstagram)]
+            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
+            if (width && height) adjunto.setDescription(`${width}x${height}`);
+
+            await message.channel.send({
+                content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                files: [adjunto],
+                components: [botonVer()]
             });
-            console.log(`⚠️ Video muy grande y HF no disponible, botón enviado para ${message.author.username}`);
-            return;
-        }
-
-        if (resultado?.tipo === 'video') {
-            await enviarConBoton('video', resultado);
-            console.log(`✅ Video subido para ${message.author.username}`);
-            return;
-        }
-
-        if (resultado?.tipo === 'imagen') {
-            await enviarConBoton('imagen', resultado);
+            await msgCargando.delete().catch(() => {});
             console.log(`✅ Imagen subida para ${message.author.username}`);
             return;
         }
 
-        // Segundo intento IG
-        if (esInstagram && resultado?.tipo === 'not_found_v3') {
-            console.log(`↩️ Intentando endpoint v3/url para IG...`);
-            const resultado2 = await descargarIGv2(linkOriginal);
+        // ── Es video ──
+        if (resultado.tipo === 'video') {
+            const buffer = Buffer.from(resultado.base64Video, 'base64');
+            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
 
-            if (resultado2?.tipo === 'privada') {
-                await msgCargando.edit({ content: `🔒 **${message.author.displayName}** quiso compartir algo pero la cuenta es privada.` });
-                return;
-            }
-            if (resultado2?.tipo === 'video') {
-                await enviarConBoton('video', resultado2);
-                console.log(`✅ Video subido (v3/url) para ${message.author.username}`);
-                return;
-            }
-            if (resultado2?.tipo === 'imagen') {
-                await enviarConBoton('imagen', resultado2);
-                console.log(`✅ Imagen subida (v3/url) para ${message.author.username}`);
-                return;
-            }
+            await message.channel.send({
+                content: `📹 **${message.author.displayName}** compartió un video:`,
+                files: [adjunto],
+                components: [botonVer()]
+            });
+            await msgCargando.delete().catch(() => {});
+            console.log(`✅ Video subido para ${message.author.username} (${resultado.sizeMB || '?'} MB)`);
+            return;
         }
 
-        // Fallback — solo botón
-        console.log(`↩️ No se pudo procesar, enviando botón de fallback...`);
-        await new Promise(r => setTimeout(r, 1500));
-
-        const labelRed = esInstagram ? 'Instagram' : 'TikTok';
-        const emojiRed = esInstagram ? '📸' : '🎵';
-        await msgCargando.edit({
-            content: `${emojiRed} **${message.author.displayName}** compartió algo de ${labelRed}:`,
-            components: [botonVer(esInstagram)]
-        });
-        console.log(`↩️ Fallback con botón enviado para ${message.author.username}`);
+        throw new Error('Respuesta inesperada de Hugging Face');
 
     } catch (err) {
-        console.error("❌ Error total en motor de videos:", err.message);
+        console.error(`❌ Error procesando para ${message.author.username}:`, err.message);
+
+        // Fallback: mostrar solo el botón
+        const red   = esInstagram ? 'Instagram' : 'TikTok';
+        const emoji = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
-            content: `📹 **${message.author.displayName}** compartió: ${linkOriginal}`
-        }).catch(() => {});
+            content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
+            components: [botonVer()]
+        });
     }
 });
 
-// ==========================================
-// ARRANQUE DEL SERVIDOR HTTP
-// ==========================================
+// ─────────────────────────────────────────────
+// SERVIDOR HTTP
+// ─────────────────────────────────────────────
+
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end("Bot online");
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor HTTP interno listo y escuchando en el puerto ${PORT}`);
-    console.log("🔍 [DIAGNÓSTICO] Verificando variables de entorno:");
-
+    console.log(`🚀 Servidor HTTP listo en el puerto ${PORT}`);
+    console.log("🔍 Variables de entorno:");
     if (!process.env.TOKEN) {
-        console.log("❌ ERROR GRAVE: process.env.TOKEN está VACÍO.");
+        console.log("❌ TOKEN vacío.");
     } else {
-        console.log(`✅ Token detectado. Comienza con: "${process.env.TOKEN.substring(0, 5)}..."`);
+        console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`);
     }
-
-    if (!process.env.RAPIDAPI_KEY) {
-        console.log("⚠️  RAPIDAPI_KEY no configurada. Solo fallback de dominio activo.");
-    } else {
-        console.log(`✅ RapidAPI Key detectada. Comienza con: "${process.env.RAPIDAPI_KEY.substring(0, 5)}..."`);
-    }
-
     if (!HUGGING_FACE_URL) {
-        console.log("⚠️  HUGGING_FACE_URL no configurada. Videos grandes mostrarán solo botón.");
+        console.log("⚠️  HUGGING_FACE_URL no configurada. El bot solo mostrará botones.");
     } else {
-        console.log(`✅ Hugging Face URL: ${HUGGING_FACE_URL}`);
+        console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`);
     }
-
-    console.log("🔑 Enviando señal de inicio de sesión a Discord...");
     client.login(process.env.TOKEN).catch(err => {
         console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
     });
