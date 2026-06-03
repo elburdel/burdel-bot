@@ -57,10 +57,6 @@ const links = {
 const cooldowns = new Map();
 const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
 
-// ─────────────────────────────────────────────
-// BACKUP / RESTAURACIÓN DE CUMPLEAÑOS
-// ─────────────────────────────────────────────
-
 async function respaldarEnDiscord() {
     try {
         const canalBD = await client.channels.fetch(CANAL_BASE_DATOS);
@@ -98,10 +94,6 @@ async function recuperarDesdeDiscord() {
         console.error("❌ Error en recuperación de memoria:", e);
     }
 }
-
-// ─────────────────────────────────────────────
-// INICIO DEL BOT
-// ─────────────────────────────────────────────
 
 client.once(Events.ClientReady, async () => {
     console.log("===============================================");
@@ -167,10 +159,6 @@ client.once(Events.ClientReady, async () => {
         }, null, true, 'America/Argentina/Buenos_Aires');
     } catch(err) { console.error("❌ Error al armar el CronJob:", err); }
 });
-
-// ─────────────────────────────────────────────
-// INTERACCIONES (botones, modals, etc.)
-// ─────────────────────────────────────────────
 
 const adminCache = new Map();
 
@@ -254,9 +242,59 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// MOTOR DE VIDEOS — todo via Hugging Face
+// HELPER: descargar imagen desde Render
+// Render sí puede conectarse a Instagram directamente
 // ─────────────────────────────────────────────
+async function descargarImagenDesdeRender(url) {
+    // Intentar oEmbed primero
+    try {
+        const oembedUrl = `https://www.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
+        const oembedResp = await axios.get(oembedUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            timeout: 15000
+        });
+        const thumbUrl = oembedResp.data?.thumbnail_url;
+        if (thumbUrl) {
+            console.log(`✅ oEmbed: thumbnail obtenida`);
+            const imgResp = await axios.get(thumbUrl, {
+                responseType: 'arraybuffer',
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: 30000
+            });
+            return Buffer.from(imgResp.data);
+        }
+    } catch (e) {
+        console.log(`⚠️ oEmbed falló: ${e.message}`);
+    }
+    return null;
+}
 
+// ─────────────────────────────────────────────
+// HELPER: leer dimensiones reales de imagen
+// ─────────────────────────────────────────────
+function leerDimensionesImagen(buffer) {
+    try {
+        if (buffer[0] === 0x89 && buffer[1] === 0x50) {
+            return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+        } else if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+            let i = 2;
+            while (i < buffer.length - 8) {
+                if (buffer[i] === 0xFF) {
+                    const marker = buffer[i + 1];
+                    if (marker === 0xC0 || marker === 0xC2) {
+                        return { width: buffer.readUInt16BE(i + 7), height: buffer.readUInt16BE(i + 5) };
+                    }
+                    i += 2 + buffer.readUInt16BE(i + 2);
+                } else { i++; }
+            }
+        }
+    } catch(e) {}
+    return { width: null, height: null };
+}
+
+// ─────────────────────────────────────────────
+// MOTOR DE VIDEOS
+// ─────────────────────────────────────────────
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
@@ -270,11 +308,12 @@ client.on(Events.MessageCreate, async message => {
 
     const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
     const esInstagram  = !!igMatch;
+    const esPost       = esInstagram && linkOriginal.includes('/p/');
 
     await message.delete().catch(() => {});
 
     const msgCargando = await message.channel.send(
-        `⏳ Procesando video de <@${message.author.id}>...`
+        `⏳ Procesando de <@${message.author.id}>...`
     );
 
     const botonVer = () => new ActionRowBuilder().addComponents(
@@ -284,7 +323,37 @@ client.on(Events.MessageCreate, async message => {
             .setURL(linkOriginal)
     );
 
-    // Si no hay Hugging Face configurado, solo mostrar botón
+    // ── Posts de Instagram (/p/) → manejar desde Render ──
+    if (esPost) {
+        console.log(`🖼️ Post de IG detectado, descargando imagen desde Render: ${linkOriginal}`);
+        try {
+            const buffer = await descargarImagenDesdeRender(linkOriginal);
+            if (buffer) {
+                const { width, height } = leerDimensionesImagen(buffer);
+                const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
+                if (width && height) adjunto.setDescription(`${width}x${height}`);
+                await message.channel.send({
+                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                    files: [adjunto],
+                    components: [botonVer()]
+                });
+                await msgCargando.delete().catch(() => {});
+                console.log(`✅ Imagen subida para ${message.author.username}`);
+                return;
+            }
+        } catch (e) {
+            console.log(`⚠️ Error descargando imagen: ${e.message}`);
+        }
+
+        // Fallback: solo botón
+        await msgCargando.edit({
+            content: `🖼️ **${message.author.displayName}** compartió una imagen de Instagram:`,
+            components: [botonVer()]
+        });
+        return;
+    }
+
+    // ── Reels y TikTok → Hugging Face ──
     if (!HUGGING_FACE_URL) {
         const red = esInstagram ? 'Instagram' : 'TikTok';
         const emoji = esInstagram ? '📸' : '🎵';
@@ -292,13 +361,11 @@ client.on(Events.MessageCreate, async message => {
             content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
             components: [botonVer()]
         });
-        console.log(`⚠️ HUGGING_FACE_URL no configurada, solo botón para ${message.author.username}`);
         return;
     }
 
     try {
         console.log(`🔄 Enviando a Hugging Face: ${linkOriginal}`);
-
         const resp = await axios.post(
             `${HUGGING_FACE_URL}/process`,
             { videoUrl: linkOriginal },
@@ -306,40 +373,13 @@ client.on(Events.MessageCreate, async message => {
         );
 
         const resultado = resp.data;
+        if (!resultado?.success) throw new Error(resultado?.error || 'Hugging Face devolvió error');
 
-        if (!resultado?.success) {
-            throw new Error(resultado?.error || 'Hugging Face devolvió error');
-        }
-
-        // ── Es imagen ──
         if (resultado.tipo === 'imagen') {
             const buffer = Buffer.from(resultado.base64, 'base64');
-
-            // Leer dimensiones reales para que Discord no corte el preview
-            let width = null, height = null;
-            try {
-                if (buffer[0] === 0x89 && buffer[1] === 0x50) {
-                    width  = buffer.readUInt32BE(16);
-                    height = buffer.readUInt32BE(20);
-                } else if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
-                    let i = 2;
-                    while (i < buffer.length - 8) {
-                        if (buffer[i] === 0xFF) {
-                            const marker = buffer[i + 1];
-                            if (marker === 0xC0 || marker === 0xC2) {
-                                height = buffer.readUInt16BE(i + 5);
-                                width  = buffer.readUInt16BE(i + 7);
-                                break;
-                            }
-                            i += 2 + buffer.readUInt16BE(i + 2);
-                        } else { i++; }
-                    }
-                }
-            } catch(e) {}
-
+            const { width, height } = leerDimensionesImagen(buffer);
             const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
             if (width && height) adjunto.setDescription(`${width}x${height}`);
-
             await message.channel.send({
                 content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
                 files: [adjunto],
@@ -350,11 +390,9 @@ client.on(Events.MessageCreate, async message => {
             return;
         }
 
-        // ── Es video ──
         if (resultado.tipo === 'video') {
             const buffer = Buffer.from(resultado.base64Video, 'base64');
             const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
-
             await message.channel.send({
                 content: `📹 **${message.author.displayName}** compartió un video:`,
                 files: [adjunto],
@@ -369,8 +407,6 @@ client.on(Events.MessageCreate, async message => {
 
     } catch (err) {
         console.error(`❌ Error procesando para ${message.author.username}:`, err.message);
-
-        // Fallback: mostrar solo el botón
         const red   = esInstagram ? 'Instagram' : 'TikTok';
         const emoji = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
@@ -379,10 +415,6 @@ client.on(Events.MessageCreate, async message => {
         });
     }
 });
-
-// ─────────────────────────────────────────────
-// SERVIDOR HTTP
-// ─────────────────────────────────────────────
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -398,7 +430,7 @@ server.listen(PORT, '0.0.0.0', () => {
         console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`);
     }
     if (!HUGGING_FACE_URL) {
-        console.log("⚠️  HUGGING_FACE_URL no configurada. El bot solo mostrará botones.");
+        console.log("⚠️  HUGGING_FACE_URL no configurada.");
     } else {
         console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`);
     }
