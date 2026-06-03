@@ -246,13 +246,14 @@ client.on(Events.InteractionCreate, async interaction => {
 // Render sí puede conectarse a Instagram directamente
 // ─────────────────────────────────────────────
 async function descargarImagenDesdeRender(url) {
-    // Intentar oEmbed primero
     try {
         const oembedUrl = `https://www.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
+        console.log(`🔍 Llamando oEmbed: ${oembedUrl}`);
         const oembedResp = await axios.get(oembedUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
             timeout: 15000
         });
+        console.log(`📦 oEmbed respondió:`, JSON.stringify(oembedResp.data).substring(0, 300));
         const thumbUrl = oembedResp.data?.thumbnail_url;
         if (thumbUrl) {
             console.log(`✅ oEmbed: thumbnail obtenida`);
@@ -263,6 +264,7 @@ async function descargarImagenDesdeRender(url) {
             });
             return Buffer.from(imgResp.data);
         }
+        console.log(`⚠️ oEmbed sin thumbnail_url`);
     } catch (e) {
         console.log(`⚠️ oEmbed falló: ${e.message}`);
     }
