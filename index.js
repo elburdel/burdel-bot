@@ -242,33 +242,63 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// HELPER: descargar imagen desde Render
-// Render sí puede conectarse a Instagram directamente
+// HELPER: descargar imagen via RapidAPI
 // ─────────────────────────────────────────────
 async function descargarImagenDesdeRender(url) {
-    try {
-        const oembedUrl = `https://www.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
-        console.log(`🔍 Llamando oEmbed: ${oembedUrl}`);
-        const oembedResp = await axios.get(oembedUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-            timeout: 15000
-        });
-        console.log(`📦 oEmbed respondió:`, JSON.stringify(oembedResp.data).substring(0, 300));
-        const thumbUrl = oembedResp.data?.thumbnail_url;
-        if (thumbUrl) {
-            console.log(`✅ oEmbed: thumbnail obtenida`);
-            const imgResp = await axios.get(thumbUrl, {
-                responseType: 'arraybuffer',
-                headers: { 'User-Agent': 'Mozilla/5.0' },
-                timeout: 30000
-            });
-            return Buffer.from(imgResp.data);
-        }
-        console.log(`⚠️ oEmbed sin thumbnail_url`);
-    } catch (e) {
-        console.log(`⚠️ oEmbed falló: ${e.message}`);
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) {
+        console.log('⚠️ RAPIDAPI_KEY no configurada');
+        return null;
     }
-    return null;
+
+    try {
+        const shortcode = url.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
+        if (!shortcode) return null;
+
+        console.log(`🔍 RapidAPI buscando imagen para shortcode: ${shortcode}`);
+
+        const resp = await axios.get(
+            'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
+            {
+                params: { shortcode, renderableFormats: 'highres' },
+                headers: {
+                    'x-rapidapi-key': RAPIDAPI_KEY,
+                    'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
+                },
+                timeout: 15000
+            }
+        );
+
+        const data = resp.data;
+        console.log(`📦 RapidAPI respondió, keys:`, Object.keys(data));
+
+        const c0 = data?.contents?.[0];
+        const imgUrl = c0?.images?.[0]?.url
+            || c0?.display_url
+            || c0?.image_url
+            || c0?.thumbnail_url
+            || c0?.url
+            || data?.metadata?.thumbnailUrl
+            || data?.display_url
+            || data?.url;
+
+        if (!imgUrl) {
+            console.log('⚠️ RapidAPI: no se encontró URL de imagen, keys c0:', JSON.stringify(Object.keys(c0 || {})));
+            return null;
+        }
+
+        console.log(`✅ RapidAPI: imagen encontrada, descargando...`);
+        const imgResp = await axios.get(imgUrl, {
+            responseType: 'arraybuffer',
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 30000
+        });
+        return Buffer.from(imgResp.data);
+
+    } catch (e) {
+        console.log(`⚠️ RapidAPI falló: ${e.response?.status} — ${e.message}`);
+        return null;
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -325,9 +355,9 @@ client.on(Events.MessageCreate, async message => {
             .setURL(linkOriginal)
     );
 
-    // ── Posts de Instagram (/p/) → manejar desde Render ──
+    // ── Posts /p/ → RapidAPI ──
     if (esPost) {
-        console.log(`🖼️ Post de IG detectado, descargando imagen desde Render: ${linkOriginal}`);
+        console.log(`🖼️ Post de IG, usando RapidAPI: ${linkOriginal}`);
         try {
             const buffer = await descargarImagenDesdeRender(linkOriginal);
             if (buffer) {
@@ -344,10 +374,8 @@ client.on(Events.MessageCreate, async message => {
                 return;
             }
         } catch (e) {
-            console.log(`⚠️ Error descargando imagen: ${e.message}`);
+            console.log(`⚠️ Error imagen: ${e.message}`);
         }
-
-        // Fallback: solo botón
         await msgCargando.edit({
             content: `🖼️ **${message.author.displayName}** compartió una imagen de Instagram:`,
             components: [botonVer()]
@@ -388,7 +416,6 @@ client.on(Events.MessageCreate, async message => {
                 components: [botonVer()]
             });
             await msgCargando.delete().catch(() => {});
-            console.log(`✅ Imagen subida para ${message.author.username}`);
             return;
         }
 
