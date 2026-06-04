@@ -270,7 +270,7 @@ async function descargarImagenDesdeRender(url) {
         );
 
         const data = resp.data;
-        console.log(`📦 RapidAPI respondió, keys:`, Object.keys(data));
+        console.log(`📦 RapidAPI respondió:`, JSON.stringify(data).substring(0, 500));
 
         const c0 = data?.contents?.[0];
         const imgUrlRaw = c0?.images?.[0]?.url
