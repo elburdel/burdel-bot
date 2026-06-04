@@ -363,55 +363,45 @@ client.on(Events.MessageCreate, async message => {
             .setURL(linkOriginal)
     );
 
-    // ── Posts /p/ → RapidAPI ──
+    // ── Posts /p/ → Hugging Face con instaloader ──
     if (esPost) {
-        console.log(`🖼️ Post de IG, usando RapidAPI: ${linkOriginal}`);
-        try {
-            const shortcode = linkOriginal.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
-            if (shortcode && process.env.RAPIDAPI_KEY) {
-                const resp = await axios.get(
-                    'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
-                    {
-                        params: { shortcode, renderableFormats: 'highres' },
-                        headers: {
-                            'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-                            'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
-                        },
-                        timeout: 15000
-                    }
+        console.log(`🖼️ Post de IG, enviando a Hugging Face: ${linkOriginal}`);
+        const hfUrlsImg = [
+            process.env.HUGGING_FACE_URL,
+            process.env.HUGGING_FACE_URL_2,
+            process.env.HUGGING_FACE_URL_3
+        ].filter(Boolean);
+
+        for (const hfUrl of hfUrlsImg) {
+            try {
+                console.log(`🔄 Intentando imagen via: ${hfUrl}`);
+                const resp = await axios.post(
+                    `${hfUrl}/process`,
+                    { videoUrl: linkOriginal },
+                    { timeout: 60000 }
                 );
-                const data = resp.data;
-                const c0 = data?.contents?.[0];
-                const imgUrlRaw = c0?.images?.[0]?.url
-                    || c0?.display_url
-                    || c0?.image_url
-                    || c0?.thumbnail_url
-                    || c0?.url
-                    || data?.metadata?.thumbnailUrl
-                    || data?.display_url
-                    || data?.url;
+                const resultado = resp.data;
+                if (!resultado?.success) throw new Error(resultado?.error || 'Error de HF');
 
-                if (imgUrlRaw) {
-                    // Limpiar parámetro stp que causa el crop cuadrado
-                    const imgUrl = imgUrlRaw.replace(/[?&]stp=[^&]+/, m => m.startsWith('?') ? '?' : '');
-                    console.log(`✅ Imagen URL limpia lista`);
-
-                    // Embed — Discord renderiza la imagen sin URL visible en el mensaje
+                if (resultado.tipo === 'imagen') {
+                    const buffer = Buffer.from(resultado.base64, 'base64');
+                    const { width, height } = leerDimensionesImagen(buffer);
+                    const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
+                    if (width && height) adjunto.setDescription(`${width}x${height}`);
                     await message.channel.send({
                         content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                        embeds: [{
-                            image: { url: imgUrl }
-                        }],
+                        files: [adjunto],
                         components: [botonVer()]
                     });
                     await msgCargando.delete().catch(() => {});
-                    console.log(`✅ Imagen enviada como embed para ${message.author.username}`);
+                    console.log(`✅ Imagen subida para ${message.author.username}`);
                     return;
                 }
+            } catch (e) {
+                console.log(`⚠️ ${hfUrl} falló para imagen: ${e.message} — probando siguiente...`);
             }
-        } catch (e) {
-            console.log(`⚠️ Error imagen: ${e.message}`);
         }
+
         await msgCargando.edit({
             content: `🖼️ **${message.author.displayName}** compartió una imagen de Instagram:`,
             components: [botonVer()]
