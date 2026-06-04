@@ -382,7 +382,7 @@ client.on(Events.MessageCreate, async message => {
                 );
                 const data = resp.data;
                 const c0 = data?.contents?.[0];
-                const imgUrl = c0?.images?.[0]?.url
+                const imgUrlRaw = c0?.images?.[0]?.url
                     || c0?.display_url
                     || c0?.image_url
                     || c0?.thumbnail_url
@@ -391,14 +391,21 @@ client.on(Events.MessageCreate, async message => {
                     || data?.display_url
                     || data?.url;
 
-                if (imgUrl) {
-                    // Mandar URL directo — Discord la previsualiza completa sin descargar
+                if (imgUrlRaw) {
+                    // Limpiar parámetro stp que causa el crop cuadrado
+                    const imgUrl = imgUrlRaw.replace(/[?&]stp=[^&]+/, m => m.startsWith('?') ? '?' : '');
+                    console.log(`✅ Imagen URL limpia lista`);
+
+                    // Embed — Discord renderiza la imagen sin URL visible en el mensaje
                     await message.channel.send({
-                        content: `🖼️ **${message.author.displayName}** compartió una imagen:\n${imgUrl}`,
+                        content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                        embeds: [{
+                            image: { url: imgUrl }
+                        }],
                         components: [botonVer()]
                     });
                     await msgCargando.delete().catch(() => {});
-                    console.log(`✅ Imagen enviada como URL para ${message.author.username}`);
+                    console.log(`✅ Imagen enviada como embed para ${message.author.username}`);
                     return;
                 }
             }
