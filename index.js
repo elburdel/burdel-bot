@@ -294,7 +294,11 @@ console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
         console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
         const imgResp = await axios.get(imgUrl, {
             responseType: 'arraybuffer',
-            headers: { 'User-Agent': 'Mozilla/5.0' },
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.instagram.com/',
+                'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+            },
             timeout: 30000
         });
         return Buffer.from(imgResp.data);
