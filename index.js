@@ -288,8 +288,7 @@ if (!imgUrlRaw) {
 }
 
 // Limpiar parámetros de crop de Instagram para obtener imagen completa
-const imgUrl = imgUrlRaw.split('?')[0] + '?ig_cache_key=' + 
-    (imgUrlRaw.match(/ig_cache_key=([^&]+)/) || ['',''])[1];
+const imgUrl = imgUrlRaw.replace(/stp=[^&]+&?/, '');
 console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
 
         console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
