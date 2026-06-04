@@ -273,19 +273,24 @@ async function descargarImagenDesdeRender(url) {
         console.log(`📦 RapidAPI respondió, keys:`, Object.keys(data));
 
         const c0 = data?.contents?.[0];
-        const imgUrl = c0?.images?.[0]?.url
-            || c0?.display_url
-            || c0?.image_url
-            || c0?.thumbnail_url
-            || c0?.url
-            || data?.metadata?.thumbnailUrl
-            || data?.display_url
-            || data?.url;
+        const imgUrlRaw = c0?.images?.[0]?.url
+    || c0?.display_url
+    || c0?.image_url
+    || c0?.thumbnail_url
+    || c0?.url
+    || data?.metadata?.thumbnailUrl
+    || data?.display_url
+    || data?.url;
 
-        if (!imgUrl) {
-            console.log('⚠️ RapidAPI: no se encontró URL de imagen, keys c0:', JSON.stringify(Object.keys(c0 || {})));
-            return null;
-        }
+if (!imgUrlRaw) {
+    console.log('⚠️ RapidAPI: no se encontró URL de imagen, keys c0:', JSON.stringify(Object.keys(c0 || {})));
+    return null;
+}
+
+// Limpiar parámetros de crop de Instagram para obtener imagen completa
+const imgUrl = imgUrlRaw.split('?')[0] + '?ig_cache_key=' + 
+    (imgUrlRaw.match(/ig_cache_key=([^&]+)/) || ['',''])[1];
+console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
 
         console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
         const imgResp = await axios.get(imgUrl, {
