@@ -367,19 +367,40 @@ client.on(Events.MessageCreate, async message => {
     if (esPost) {
         console.log(`🖼️ Post de IG, usando RapidAPI: ${linkOriginal}`);
         try {
-            const buffer = await descargarImagenDesdeRender(linkOriginal);
-            if (buffer) {
-                const { width, height } = leerDimensionesImagen(buffer);
-                const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
-                if (width && height) adjunto.setDescription(`${width}x${height}`);
-                await message.channel.send({
-                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                    files: [adjunto],
-                    components: [botonVer()]
-                });
-                await msgCargando.delete().catch(() => {});
-                console.log(`✅ Imagen subida para ${message.author.username}`);
-                return;
+            const shortcode = linkOriginal.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
+            if (shortcode && process.env.RAPIDAPI_KEY) {
+                const resp = await axios.get(
+                    'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
+                    {
+                        params: { shortcode, renderableFormats: 'highres' },
+                        headers: {
+                            'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+                            'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
+                        },
+                        timeout: 15000
+                    }
+                );
+                const data = resp.data;
+                const c0 = data?.contents?.[0];
+                const imgUrl = c0?.images?.[0]?.url
+                    || c0?.display_url
+                    || c0?.image_url
+                    || c0?.thumbnail_url
+                    || c0?.url
+                    || data?.metadata?.thumbnailUrl
+                    || data?.display_url
+                    || data?.url;
+
+                if (imgUrl) {
+                    // Mandar URL directo — Discord la previsualiza completa sin descargar
+                    await message.channel.send({
+                        content: `🖼️ **${message.author.displayName}** compartió una imagen:\n${imgUrl}`,
+                        components: [botonVer()]
+                    });
+                    await msgCargando.delete().catch(() => {});
+                    console.log(`✅ Imagen enviada como URL para ${message.author.username}`);
+                    return;
+                }
             }
         } catch (e) {
             console.log(`⚠️ Error imagen: ${e.message}`);
