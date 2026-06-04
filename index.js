@@ -287,7 +287,7 @@ async function descargarImagenDesdeRender(url) {
             return null;
         }
 
-        console.log(`✅ RapidAPI: imagen encontrada, descargando...`);
+        console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
         const imgResp = await axios.get(imgUrl, {
             responseType: 'arraybuffer',
             headers: { 'User-Agent': 'Mozilla/5.0' },
