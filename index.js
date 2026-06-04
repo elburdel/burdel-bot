@@ -341,14 +341,20 @@ client.on(Events.MessageCreate, async message => {
     const contenido = message.content;
     const igRegex = /(https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^\s]+)/gi;
     const ttRegex = /(https?:\/\/(?:www\.)?(?:tiktok\.com\/@[^\s]+\/video\/[^\s]+|vm\.tiktok\.com\/[^\s]+|vt\.tiktok\.com\/[^\s]+))/gi;
+    const twRegex = /(https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/[^\s]+\/status\/[0-9]+[^\s]*)/gi;
+    const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[A-Za-z0-9_-]+|youtu\.be\/[A-Za-z0-9_-]+)[^\s]*)/gi;
 
     const igMatch = contenido.match(igRegex);
     const ttMatch = contenido.match(ttRegex);
-    if (!igMatch && !ttMatch) return;
+    const twMatch = contenido.match(twRegex);
+    const ytMatch = contenido.match(ytRegex);
+    if (!igMatch && !ttMatch && !twMatch && !ytMatch) return;
 
-    const linkOriginal = (igMatch || ttMatch)[0].split('?')[0];
+    const linkOriginal = (igMatch || ttMatch || twMatch || ytMatch)[0].split('?')[0];
     const esInstagram  = !!igMatch;
     const esPost       = esInstagram && linkOriginal.includes('/p/');
+    const esTwitter    = !!twMatch;
+    const esYoutube    = !!ytMatch;
 
     await message.delete().catch(() => {});
 
@@ -358,7 +364,7 @@ client.on(Events.MessageCreate, async message => {
 
     const botonVer = () => new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setLabel(esInstagram ? '📸 Ver en Instagram' : '🎵 Ver en TikTok')
+            .setLabel(esInstagram ? '📸 Ver en Instagram' : esTwitter ? '🐦 Ver en X' : esYoutube ? '▶️ Ver en YouTube' : '🎵 Ver en TikTok')
             .setStyle(ButtonStyle.Link)
             .setURL(linkOriginal)
     );
@@ -417,8 +423,8 @@ client.on(Events.MessageCreate, async message => {
     ].filter(Boolean);
 
     if (hfUrls.length === 0) {
-        const red = esInstagram ? 'Instagram' : 'TikTok';
-        const emoji = esInstagram ? '📸' : '🎵';
+        const red = esInstagram ? 'Instagram' : esTwitter ? 'X' : esYoutube ? 'YouTube' : 'TikTok';
+        const emoji = esInstagram ? '📸' : esTwitter ? '🐦' : esYoutube ? '▶️' : '🎵';
         await msgCargando.edit({
             content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
             components: [botonVer()]
@@ -474,8 +480,8 @@ client.on(Events.MessageCreate, async message => {
     }
 
     if (!exito) {
-        const red   = esInstagram ? 'Instagram' : 'TikTok';
-        const emoji = esInstagram ? '📸' : '🎵';
+        const red   = esInstagram ? 'Instagram' : esTwitter ? 'X' : esYoutube ? 'YouTube' : 'TikTok';
+        const emoji = esInstagram ? '📸' : esTwitter ? '🐦' : esYoutube ? '▶️' : '🎵';
         await msgCargando.edit({
             content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
             components: [botonVer()]
