@@ -383,8 +383,14 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // ── Reels y TikTok → Hugging Face ──
-    if (!HUGGING_FACE_URL) {
+    // ── Reels y TikTok → Hugging Face con rotación de IPs ──
+    const hfUrls = [
+        process.env.HUGGING_FACE_URL,
+        process.env.HUGGING_FACE_URL_2,
+        process.env.HUGGING_FACE_URL_3
+    ].filter(Boolean);
+
+    if (hfUrls.length === 0) {
         const red = esInstagram ? 'Instagram' : 'TikTok';
         const emoji = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
@@ -394,48 +400,54 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    try {
-        console.log(`🔄 Enviando a Hugging Face: ${linkOriginal}`);
-        const resp = await axios.post(
-            `${HUGGING_FACE_URL}/process`,
-            { videoUrl: linkOriginal },
-            { timeout: 120000 }
-        );
+    let exito = false;
+    for (const hfUrl of hfUrls) {
+        try {
+            console.log(`🔄 Intentando Hugging Face: ${hfUrl}`);
+            const resp = await axios.post(
+                `${hfUrl}/process`,
+                { videoUrl: linkOriginal },
+                { timeout: 120000 }
+            );
 
-        const resultado = resp.data;
-        if (!resultado?.success) throw new Error(resultado?.error || 'Hugging Face devolvió error');
+            const resultado = resp.data;
+            if (!resultado?.success) throw new Error(resultado?.error || 'Error de HF');
 
-        if (resultado.tipo === 'imagen') {
-            const buffer = Buffer.from(resultado.base64, 'base64');
-            const { width, height } = leerDimensionesImagen(buffer);
-            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
-            if (width && height) adjunto.setDescription(`${width}x${height}`);
-            await message.channel.send({
-                content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                files: [adjunto],
-                components: [botonVer()]
-            });
-            await msgCargando.delete().catch(() => {});
-            return;
+            if (resultado.tipo === 'imagen') {
+                const buffer = Buffer.from(resultado.base64, 'base64');
+                const { width, height } = leerDimensionesImagen(buffer);
+                const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
+                if (width && height) adjunto.setDescription(`${width}x${height}`);
+                await message.channel.send({
+                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                    files: [adjunto],
+                    components: [botonVer()]
+                });
+                await msgCargando.delete().catch(() => {});
+                exito = true;
+                break;
+            }
+
+            if (resultado.tipo === 'video') {
+                const buffer = Buffer.from(resultado.base64Video, 'base64');
+                const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
+                await message.channel.send({
+                    content: `📹 **${message.author.displayName}** compartió un video:`,
+                    files: [adjunto],
+                    components: [botonVer()]
+                });
+                await msgCargando.delete().catch(() => {});
+                console.log(`✅ Video subido para ${message.author.username} via ${hfUrl}`);
+                exito = true;
+                break;
+            }
+
+        } catch (err) {
+            console.log(`⚠️ ${hfUrl} falló: ${err.message} — probando siguiente...`);
         }
+    }
 
-        if (resultado.tipo === 'video') {
-            const buffer = Buffer.from(resultado.base64Video, 'base64');
-            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
-            await message.channel.send({
-                content: `📹 **${message.author.displayName}** compartió un video:`,
-                files: [adjunto],
-                components: [botonVer()]
-            });
-            await msgCargando.delete().catch(() => {});
-            console.log(`✅ Video subido para ${message.author.username} (${resultado.sizeMB || '?'} MB)`);
-            return;
-        }
-
-        throw new Error('Respuesta inesperada de Hugging Face');
-
-    } catch (err) {
-        console.error(`❌ Error procesando para ${message.author.username}:`, err.message);
+    if (!exito) {
         const red   = esInstagram ? 'Instagram' : 'TikTok';
         const emoji = esInstagram ? '📸' : '🎵';
         await msgCargando.edit({
