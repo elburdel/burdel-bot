@@ -365,41 +365,41 @@ client.on(Events.MessageCreate, async message => {
 
     // ── Posts /p/ → Hugging Face con instaloader ──
     if (esPost) {
-        console.log(`🖼️ Post de IG, enviando a Hugging Face: ${linkOriginal}`);
-        const hfUrlsImg = [
-            process.env.HUGGING_FACE_URL,
-            process.env.HUGGING_FACE_URL_2,
-            process.env.HUGGING_FACE_URL_3
-        ].filter(Boolean);
+        console.log(`🖼️ Post de IG, descargando directo desde /media/?size=l`);
+        try {
+            const shortcode = linkOriginal.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
+            if (!shortcode) throw new Error('No se pudo extraer shortcode');
 
-        for (const hfUrl of hfUrlsImg) {
-            try {
-                console.log(`🔄 Intentando imagen via: ${hfUrl}`);
-                const resp = await axios.post(
-                    `${hfUrl}/process`,
-                    { videoUrl: linkOriginal },
-                    { timeout: 60000 }
-                );
-                const resultado = resp.data;
-                if (!resultado?.success) throw new Error(resultado?.error || 'Error de HF');
+            // Esta URL redirige a la imagen completa sin crop, funciona sin login
+            const mediaUrl = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
+            console.log(`📥 Descargando: ${mediaUrl}`);
 
-                if (resultado.tipo === 'imagen') {
-                    const buffer = Buffer.from(resultado.base64, 'base64');
-                    const { width, height } = leerDimensionesImagen(buffer);
-                    const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
-                    if (width && height) adjunto.setDescription(`${width}x${height}`);
-                    await message.channel.send({
-                        content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                        files: [adjunto],
-                        components: [botonVer()]
-                    });
-                    await msgCargando.delete().catch(() => {});
-                    console.log(`✅ Imagen subida para ${message.author.username}`);
-                    return;
+            const imgResp = await axios.get(mediaUrl, {
+                responseType: 'arraybuffer',
+                maxRedirects: 5,
+                timeout: 20000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
                 }
-            } catch (e) {
-                console.log(`⚠️ ${hfUrl} falló para imagen: ${e.message} — probando siguiente...`);
-            }
+            });
+
+            const buffer = Buffer.from(imgResp.data);
+            const { width, height } = leerDimensionesImagen(buffer);
+            const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
+            if (width && height) adjunto.setDescription(`${width}x${height}`);
+
+            await message.channel.send({
+                content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
+                files: [adjunto],
+                components: [botonVer()]
+            });
+            await msgCargando.delete().catch(() => {});
+            console.log(`✅ Imagen subida para ${message.author.username}`);
+            return;
+
+        } catch (e) {
+            console.log(`⚠️ Error descargando imagen: ${e.message}`);
         }
 
         await msgCargando.edit({
