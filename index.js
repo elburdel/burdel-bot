@@ -415,7 +415,23 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // ── Reels y TikTok → Hugging Face con rotación de IPs ──
+    // ── TikTok → tnktok.com (Discord lo renderiza completo con video y audio) ──
+    const esTikTok = !!ttMatch;
+    if (esTikTok) {
+        const tnktokUrl = linkOriginal
+            .replace('www.tiktok.com', 'tnktok.com')
+            .replace('vm.tiktok.com', 'tnktok.com')
+            .replace('vt.tiktok.com', 'tnktok.com')
+            .replace('tiktok.com', 'tnktok.com');
+        console.log(`🎵 TikTok via tnktok: ${tnktokUrl}`);
+        await msgCargando.edit({
+            content: `🎵 **${message.author.displayName}** compartió un TikTok:\n${tnktokUrl}`,
+            components: [botonVer()]
+        });
+        return;
+    }
+
+    // ── Reels, X, YouTube → Hugging Face con rotación de IPs ──
     const hfUrls = [
         process.env.HUGGING_FACE_URL,
         process.env.HUGGING_FACE_URL_2,
