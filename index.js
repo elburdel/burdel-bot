@@ -120,7 +120,7 @@ async function obtenerPartidosFutbolHoy() {
         const eventos = [];
 
         const anio = new Date().getFullYear();
-        const temporada = (new Date().getMonth() + 1) < 7 ? anio - 1 : anio;
+        const temporada = anio; // usar año actual siempre
 
         for (const ligaId of LIGAS_FUTBOL) {
             try {
