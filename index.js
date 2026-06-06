@@ -22,6 +22,7 @@ const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
+const APIFOOTBALL_KEY  = process.env.APIFOOTBALL_KEY || 'f1f6ec6787ed0803894e7fdcef7ce20b';
 
 const client = new Client({
     intents: [
@@ -32,12 +33,22 @@ const client = new Client({
     ]
 });
 
-const CANAL_BOTONES       = '1507503587008188446';
-const CANAL_PRINCIPAL     = '1424978392696229990';
-const CANAL_PANEL_CONTROL = '1508567294551392448';
-const CANAL_BASE_DATOS    = '1508589852638052474';
+const CANAL_BOTONES        = '1507503587008188446';
+const CANAL_PRINCIPAL      = '1424978392696229990';
+const CANAL_PANEL_CONTROL  = '1508567294551392448';
+const CANAL_BASE_DATOS     = '1508589852638052474';
+const CANAL_AGENDA         = '1512928070758174871';
+
+// Ligas de fútbol a monitorear
+const LIGAS_FUTBOL = [2, 3, 4, 9, 13, 61, 62, 71, 78, 88, 94, 135, 140, 143, 144, 203, 253, 307, 333, 383];
+// 2=Champions, 3=Europa League, 4=Conference, 9=Bundesliga, 13=Ligue 1,
+// 61=Ligue 1 FR, 62=Ligue 2, 71=Serie A BR, 78=Bundesliga, 88=Eredivisie,
+// 94=Primeira Liga, 135=Serie A IT, 140=La Liga, 143=Copa del Rey,
+// 144=Copa Libertadores, 203=Copa Sudamericana, 253=MLS, 307=Liga Argentina,
+// 333=Liga Argentina, 383=Liga Profesional Argentina
 
 let baseCumples = {};
+let recordatoriosProgramados = [];
 
 const mensajesCumple = [
     "¡Hoy se toma fuerte! 🍻 Feliz cumpleaños <@USER>, que pases una noche tremenda en El Burdel. 🎉",
@@ -56,6 +67,10 @@ const links = {
 
 const cooldowns = new Map();
 const COOLDOWN_TIEMPO = 1000 * 60 * 60 * 4;
+
+// ─────────────────────────────────────────────
+// BACKUP / RESTAURACIÓN DE CUMPLEAÑOS
+// ─────────────────────────────────────────────
 
 async function respaldarEnDiscord() {
     try {
@@ -94,6 +109,251 @@ async function recuperarDesdeDiscord() {
         console.error("❌ Error en recuperación de memoria:", e);
     }
 }
+
+// ─────────────────────────────────────────────
+// AGENDA DEPORTIVA — APIs
+// ─────────────────────────────────────────────
+
+async function obtenerPartidosFutbolHoy() {
+    try {
+        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
+        const eventos = [];
+
+        for (const ligaId of LIGAS_FUTBOL) {
+            try {
+                const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
+                    params: { league: ligaId, date: hoy, season: new Date().getFullYear() },
+                    headers: { 'x-apisports-key': APIFOOTBALL_KEY },
+                    timeout: 10000
+                });
+                const fixtures = resp.data?.response || [];
+                for (const f of fixtures) {
+                    const horaUTC = f.fixture?.date;
+                    if (!horaUTC) continue;
+                    const horaAR = moment(horaUTC).tz('America/Argentina/Buenos_Aires');
+                    eventos.push({
+                        deporte: 'futbol',
+                        emoji: '⚽',
+                        hora: horaAR,
+                        descripcion: `${f.teams?.home?.name} vs ${f.teams?.away?.name}`,
+                        liga: f.league?.name || '',
+                        rolMencion: 'Fútbol'
+                    });
+                }
+                await new Promise(r => setTimeout(r, 200)); // respetar rate limit
+            } catch(e) { /* ignorar liga con error */ }
+        }
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error obteniendo fútbol:', e.message);
+        return [];
+    }
+}
+
+async function obtenerEventosTheSportsDB(deporte) {
+    try {
+        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
+        const resp = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php`, {
+            params: { d: hoy, s: deporte },
+            timeout: 10000
+        });
+        const eventos = resp.data?.events || [];
+        return eventos.map(e => {
+            const horaStr = e.strTime || '00:00:00';
+            const fechaStr = e.dateEvent || hoy;
+            // TheSportsDB devuelve hora en UK time (UTC+1 en verano), convertir a AR
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'Europe/London');
+            const horaAR = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            let emoji = '🏆';
+            let rolMencion = deporte;
+            if (deporte === 'Tennis') { emoji = '🎾'; rolMencion = 'Tenis'; }
+            if (deporte === 'Basketball') { emoji = '🏀'; rolMencion = 'Básquet'; }
+            if (deporte === 'Boxing') { emoji = '🥊'; rolMencion = 'Boxeo'; }
+            if (deporte === 'MMA') { emoji = '🔴'; rolMencion = 'UFC'; }
+            if (deporte === 'Motorsport') { emoji = '🏎️'; rolMencion = 'F1'; }
+            return {
+                deporte: deporte.toLowerCase(),
+                emoji,
+                hora: horaAR,
+                descripcion: e.strEvent || 'Evento',
+                liga: e.strLeague || '',
+                rolMencion
+            };
+        });
+    } catch (e) {
+        console.error(`⚠️ Error TheSportsDB (${deporte}):`, e.message);
+        return [];
+    }
+}
+
+async function obtenerTodosLosEventosHoy() {
+    const [futbol, tenis, basket, boxeo, ufc, f1] = await Promise.all([
+        obtenerPartidosFutbolHoy(),
+        obtenerEventosTheSportsDB('Tennis'),
+        obtenerEventosTheSportsDB('Basketball'),
+        obtenerEventosTheSportsDB('Boxing'),
+        obtenerEventosTheSportsDB('MMA'),
+        obtenerEventosTheSportsDB('Motorsport')
+    ]);
+    const todos = [...futbol, ...tenis, ...basket, ...boxeo, ...ufc, ...f1];
+    todos.sort((a, b) => a.hora.valueOf() - b.hora.valueOf());
+    return todos;
+}
+
+function formatearAgenda(eventos) {
+    if (eventos.length === 0) return '📭 No hay eventos deportivos programados para hoy.';
+
+    let texto = `📅 **AGENDA DEPORTIVA — ${moment().tz('America/Argentina/Buenos_Aires').format('DD/MM/YYYY')}**\n\n`;
+    const grupos = {};
+    for (const e of eventos) {
+        const key = e.rolMencion;
+        if (!grupos[key]) grupos[key] = [];
+        grupos[key].push(e);
+    }
+    for (const [deporte, evs] of Object.entries(grupos)) {
+        const emoji = evs[0].emoji;
+        texto += `**${emoji} ${deporte.toUpperCase()}**\n`;
+        for (const ev of evs) {
+            const horaStr = ev.hora.format('HH:mm');
+            texto += `> \`${horaStr}\` ${ev.descripcion}`;
+            if (ev.liga) texto += ` *(${ev.liga})*`;
+            texto += '\n';
+        }
+        texto += '\n';
+    }
+    return texto;
+}
+
+// ─────────────────────────────────────────────
+// AGENDA — MENSAJE ESTÁTICO Y RECORDATORIOS
+// ─────────────────────────────────────────────
+
+async function inicializarMensajeAgenda() {
+    try {
+        const canal = await client.channels.fetch(CANAL_AGENDA);
+        const mensajes = await canal.messages.fetch({ limit: 20 });
+        const msgExistente = mensajes.find(m => m.author.id === client.user.id && m.content.includes('AGENDA DEPORTIVA DEL BURDEL'));
+        if (msgExistente) {
+            console.log('👍 Mensaje de agenda ya existe.');
+            return;
+        }
+
+        const fila1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('agenda_ver').setLabel('📅 Ver agenda del día').setStyle(ButtonStyle.Primary),
+        );
+        const fila2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rol_futbol').setLabel('⚽ Fútbol').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rol_tenis').setLabel('🎾 Tenis').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rol_boxeo').setLabel('🥊 Boxeo').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rol_ufc').setLabel('🔴 UFC').setStyle(ButtonStyle.Secondary)
+        );
+        const fila3 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rol_basket').setLabel('🏀 Básquet').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rol_f1').setLabel('🏎️ F1').setStyle(ButtonStyle.Secondary)
+        );
+
+        await canal.send({
+            content: '🏆 **AGENDA DEPORTIVA DEL BURDEL** 🏆\n\n📅 Presioná **Ver agenda del día** para ver todos los eventos de hoy con sus horarios.\n\n🔔 **Activá tus notificaciones** — clickeá el deporte que seguís y te avisamos 5 minutos antes de cada evento:',
+            components: [fila1, fila2, fila3]
+        });
+        console.log('📌 Mensaje de agenda creado.');
+    } catch (e) {
+        console.error('❌ Error inicializando agenda:', e.message);
+    }
+}
+
+async function programarRecordatoriosDelDia() {
+    // Cancelar recordatorios anteriores
+    for (const job of recordatoriosProgramados) { try { job.stop(); } catch(e) {} }
+    recordatoriosProgramados = [];
+
+    const eventos = await obtenerTodosLosEventosHoy();
+    const ahora = moment().tz('America/Argentina/Buenos_Aires');
+    const canal = await client.channels.fetch(CANAL_AGENDA).catch(() => null);
+    if (!canal) return;
+
+    const guild = canal.guild;
+
+    for (const evento of eventos) {
+        const minutos = evento.hora.diff(ahora, 'minutes');
+        if (minutos < 5 || minutos > 1440) continue; // solo eventos futuros del día
+
+        const horaRecordatorio = evento.hora.clone().subtract(5, 'minutes');
+        if (horaRecordatorio.isBefore(ahora)) continue;
+
+        const cronStr = `${horaRecordatorio.seconds()} ${horaRecordatorio.minutes()} ${horaRecordatorio.hours()} * * *`;
+
+        try {
+            const job = new CronJob(cronStr, async () => {
+                try {
+                    // Buscar rol correspondiente
+                    const nombreRol = evento.rolMencion;
+                    let rol = guild.roles.cache.find(r => r.name === nombreRol);
+                    const mencion = rol ? `<@&${rol.id}>` : `**${nombreRol}**`;
+
+                    await canal.send(
+                        `${evento.emoji} ${mencion} ¡En 5 minutos! **${evento.descripcion}**` +
+                        (evento.liga ? ` — ${evento.liga}` : '') +
+                        ` 🕐 ${evento.hora.format('HH:mm')}`
+                    );
+                } catch(e) { console.error('❌ Error enviando recordatorio:', e.message); }
+            }, null, true, 'America/Argentina/Buenos_Aires');
+
+            recordatoriosProgramados.push(job);
+            console.log(`⏰ Recordatorio programado: ${evento.descripcion} a las ${horaRecordatorio.format('HH:mm')}`);
+        } catch(e) { console.error('❌ Error programando recordatorio:', e.message); }
+    }
+
+    console.log(`✅ ${recordatoriosProgramados.length} recordatorios programados para hoy.`);
+}
+
+async function limpiarMensajesAgenda() {
+    try {
+        const canal = await client.channels.fetch(CANAL_AGENDA);
+        const mensajes = await canal.messages.fetch({ limit: 50 });
+        const aEliminar = mensajes.filter(m =>
+            m.author.id === client.user.id &&
+            !m.content.includes('AGENDA DEPORTIVA DEL BURDEL')
+        );
+        for (const msg of aEliminar.values()) {
+            await msg.delete().catch(() => {});
+        }
+        console.log(`🧹 ${aEliminar.size} mensajes de recordatorio eliminados.`);
+    } catch (e) {
+        console.error('❌ Error limpiando agenda:', e.message);
+    }
+}
+
+async function obtenerOCrearRol(guild, nombre, color) {
+    let rol = guild.roles.cache.find(r => r.name === nombre);
+    if (!rol) {
+        rol = await guild.roles.create({ name: nombre, color, reason: 'Rol de agenda deportiva' });
+        console.log(`✅ Rol creado: ${nombre}`);
+    }
+    return rol;
+}
+
+async function toggleRol(interaction, nombreRol, color) {
+    try {
+        const guild = interaction.guild;
+        const rol = await obtenerOCrearRol(guild, nombreRol, color);
+        const miembro = interaction.member;
+        if (miembro.roles.cache.has(rol.id)) {
+            await miembro.roles.remove(rol);
+            await interaction.reply({ content: `✅ Quitaste las notificaciones de **${nombreRol}**.`, flags: [MessageFlags.Ephemeral] });
+        } else {
+            await miembro.roles.add(rol);
+            await interaction.reply({ content: `✅ Activaste las notificaciones de **${nombreRol}**. Te avisaremos 5 min antes de cada evento.`, flags: [MessageFlags.Ephemeral] });
+        }
+    } catch (e) {
+        console.error(`❌ Error toggling rol ${nombreRol}:`, e.message);
+        await interaction.reply({ content: '❌ Error al asignar el rol.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+    }
+}
+
+// ─────────────────────────────────────────────
+// INICIO DEL BOT
+// ─────────────────────────────────────────────
 
 client.once(Events.ClientReady, async () => {
     console.log("===============================================");
@@ -144,6 +404,7 @@ client.once(Events.ClientReady, async () => {
         }
     } catch (error) { console.error("❌ Alerta en canal de panel de control:", error.message); }
 
+    // CronJob cumpleaños
     try {
         new CronJob('0 0 0 * * *', async () => {
             const hoy = moment().tz('America/Argentina/Buenos_Aires').format('DD/MM');
@@ -157,12 +418,33 @@ client.once(Events.ClientReady, async () => {
                 }
             }
         }, null, true, 'America/Argentina/Buenos_Aires');
-    } catch(err) { console.error("❌ Error al armar el CronJob:", err); }
+    } catch(err) { console.error("❌ Error al armar el CronJob de cumpleaños:", err); }
+
+    // Inicializar agenda deportiva
+    await inicializarMensajeAgenda().catch(e => console.error('❌ Error agenda init:', e.message));
+
+    // Programar recordatorios del día al arrancar
+    await programarRecordatoriosDelDia().catch(e => console.error('❌ Error programando recordatorios:', e.message));
+
+    // Cada día a medianoche: limpiar mensajes viejos y reprogramar
+    try {
+        new CronJob('0 1 0 * * *', async () => {
+            console.log('🌙 Medianoche: limpiando agenda y reprogramando...');
+            await limpiarMensajesAgenda();
+            await programarRecordatoriosDelDia();
+        }, null, true, 'America/Argentina/Buenos_Aires');
+    } catch(err) { console.error("❌ Error CronJob medianoche:", err); }
 });
+
+// ─────────────────────────────────────────────
+// INTERACCIONES
+// ─────────────────────────────────────────────
 
 const adminCache = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
+
+    // ── Botones de salas ──
     if (interaction.isButton() && interaction.customId.startsWith('btn_')) {
         const salaKey = interaction.customId.replace('btn_', '');
         if (!['rojo', 'burdel', 'bubbaloo', 'templo'].includes(salaKey)) return;
@@ -191,6 +473,37 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
     }
 
+    // ── Botones de agenda deportiva — ver agenda ──
+    if (interaction.isButton() && interaction.customId === 'agenda_ver') {
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+        try {
+            const eventos = await obtenerTodosLosEventosHoy();
+            const texto = formatearAgenda(eventos);
+            await interaction.editReply({ content: texto });
+        } catch (e) {
+            await interaction.editReply({ content: '❌ Error obteniendo la agenda. Intentá de nuevo.' });
+        }
+        return;
+    }
+
+    // ── Botones de autoroles deportivos ──
+    if (interaction.isButton() && interaction.customId.startsWith('rol_')) {
+        const roles = {
+            'rol_futbol': { nombre: 'Fútbol',   color: 0x00FF00 },
+            'rol_tenis':  { nombre: 'Tenis',    color: 0xFFFF00 },
+            'rol_boxeo':  { nombre: 'Boxeo',    color: 0xFF0000 },
+            'rol_ufc':    { nombre: 'UFC',      color: 0xFF4500 },
+            'rol_basket': { nombre: 'Básquet',  color: 0xFF8C00 },
+            'rol_f1':     { nombre: 'F1',       color: 0xE10600 }
+        };
+        const rolInfo = roles[interaction.customId];
+        if (rolInfo) {
+            await toggleRol(interaction, rolInfo.nombre, rolInfo.color);
+        }
+        return;
+    }
+
+    // ── Botones de panel de control ──
     if (interaction.isButton() && interaction.customId.startsWith('admin_')) {
         if (interaction.customId === 'admin_ver_cumples') {
             if (Object.keys(baseCumples).length === 0) return await interaction.reply({ content: "📂 No hay ningún cumpleaños cargado todavía.", flags: [MessageFlags.Ephemeral] });
@@ -240,74 +553,6 @@ client.on(Events.InteractionCreate, async interaction => {
         return await interaction.reply({ content: `✅ Guardado <@${usuarioGuardado}> para el **${fechaInput}**.`, flags: [MessageFlags.Ephemeral] });
     }
 });
-
-// ─────────────────────────────────────────────
-// HELPER: descargar imagen via RapidAPI
-// ─────────────────────────────────────────────
-async function descargarImagenDesdeRender(url) {
-    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    if (!RAPIDAPI_KEY) {
-        console.log('⚠️ RAPIDAPI_KEY no configurada');
-        return null;
-    }
-
-    try {
-        const shortcode = url.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
-        if (!shortcode) return null;
-
-        console.log(`🔍 RapidAPI buscando imagen para shortcode: ${shortcode}`);
-
-        const resp = await axios.get(
-            'https://social-media-video-downloader.p.rapidapi.com/instagram/v3/media/post/details',
-            {
-                params: { shortcode, renderableFormats: 'highres' },
-                headers: {
-                    'x-rapidapi-key': RAPIDAPI_KEY,
-                    'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
-                },
-                timeout: 15000
-            }
-        );
-
-        const data = resp.data;
-        console.log(`📦 RapidAPI respondió:`, JSON.stringify(data).substring(0, 500));
-
-        const c0 = data?.contents?.[0];
-        const imgUrlRaw = c0?.images?.[0]?.url
-    || c0?.display_url
-    || c0?.image_url
-    || c0?.thumbnail_url
-    || c0?.url
-    || data?.metadata?.thumbnailUrl
-    || data?.display_url
-    || data?.url;
-
-if (!imgUrlRaw) {
-    console.log('⚠️ RapidAPI: no se encontró URL de imagen, keys c0:', JSON.stringify(Object.keys(c0 || {})));
-    return null;
-}
-
-// Limpiar parámetros de crop de Instagram para obtener imagen completa
-const imgUrl = imgUrlRaw.replace(/stp=[^&]+&?/, '');
-console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
-
-        console.log(`✅ RapidAPI: imagen encontrada: ${imgUrl}`);
-        const imgResp = await axios.get(imgUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://www.instagram.com/',
-                'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-            },
-            timeout: 30000
-        });
-        return Buffer.from(imgResp.data);
-
-    } catch (e) {
-        console.log(`⚠️ RapidAPI falló: ${e.response?.status} — ${e.message}`);
-        return null;
-    }
-}
 
 // ─────────────────────────────────────────────
 // HELPER: leer dimensiones reales de imagen
@@ -369,17 +614,13 @@ client.on(Events.MessageCreate, async message => {
             .setURL(linkOriginal)
     );
 
-    // ── Posts /p/ → Hugging Face con instaloader ──
+    // ── Posts /p/ → descarga directa ──
     if (esPost) {
         console.log(`🖼️ Post de IG, descargando directo desde /media/?size=l`);
         try {
             const shortcode = linkOriginal.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1];
             if (!shortcode) throw new Error('No se pudo extraer shortcode');
-
-            // Esta URL redirige a la imagen completa sin crop, funciona sin login
             const mediaUrl = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
-            console.log(`📥 Descargando: ${mediaUrl}`);
-
             const imgResp = await axios.get(mediaUrl, {
                 responseType: 'arraybuffer',
                 maxRedirects: 5,
@@ -389,12 +630,10 @@ client.on(Events.MessageCreate, async message => {
                     'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
                 }
             });
-
             const buffer = Buffer.from(imgResp.data);
             const { width, height } = leerDimensionesImagen(buffer);
             const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
             if (width && height) adjunto.setDescription(`${width}x${height}`);
-
             await message.channel.send({
                 content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
                 files: [adjunto],
@@ -403,11 +642,9 @@ client.on(Events.MessageCreate, async message => {
             await msgCargando.delete().catch(() => {});
             console.log(`✅ Imagen subida para ${message.author.username}`);
             return;
-
         } catch (e) {
             console.log(`⚠️ Error descargando imagen: ${e.message}`);
         }
-
         await msgCargando.edit({
             content: `🖼️ **${message.author.displayName}** compartió una imagen de Instagram:`,
             components: [botonVer()]
@@ -415,7 +652,7 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // ── TikTok → tnktok.com (Discord lo renderiza completo con video y audio) ──
+    // ── TikTok → tnktok.com ──
     const esTikTok = !!ttMatch;
     if (esTikTok) {
         const tnktokUrl = linkOriginal
@@ -431,7 +668,7 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // ── Reels, X, YouTube → Hugging Face con rotación de IPs ──
+    // ── Reels, X, YouTube → Hugging Face con rotación ──
     const hfUrls = [
         process.env.HUGGING_FACE_URL,
         process.env.HUGGING_FACE_URL_2,
@@ -441,10 +678,7 @@ client.on(Events.MessageCreate, async message => {
     if (hfUrls.length === 0) {
         const red = esInstagram ? 'Instagram' : esTwitter ? 'X' : esYoutube ? 'YouTube' : 'TikTok';
         const emoji = esInstagram ? '📸' : esTwitter ? '🐦' : esYoutube ? '▶️' : '🎵';
-        await msgCargando.edit({
-            content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
-            components: [botonVer()]
-        });
+        await msgCargando.edit({ content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`, components: [botonVer()] });
         return;
     }
 
@@ -452,12 +686,7 @@ client.on(Events.MessageCreate, async message => {
     for (const hfUrl of hfUrls) {
         try {
             console.log(`🔄 Intentando Hugging Face: ${hfUrl}`);
-            const resp = await axios.post(
-                `${hfUrl}/process`,
-                { videoUrl: linkOriginal },
-                { timeout: 120000 }
-            );
-
+            const resp = await axios.post(`${hfUrl}/process`, { videoUrl: linkOriginal }, { timeout: 120000 });
             const resultado = resp.data;
             if (!resultado?.success) throw new Error(resultado?.error || 'Error de HF');
 
@@ -466,11 +695,7 @@ client.on(Events.MessageCreate, async message => {
                 const { width, height } = leerDimensionesImagen(buffer);
                 const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_imagen.jpg' });
                 if (width && height) adjunto.setDescription(`${width}x${height}`);
-                await message.channel.send({
-                    content: `🖼️ **${message.author.displayName}** compartió una imagen:`,
-                    files: [adjunto],
-                    components: [botonVer()]
-                });
+                await message.channel.send({ content: `🖼️ **${message.author.displayName}** compartió una imagen:`, files: [adjunto], components: [botonVer()] });
                 await msgCargando.delete().catch(() => {});
                 exito = true;
                 break;
@@ -479,17 +704,12 @@ client.on(Events.MessageCreate, async message => {
             if (resultado.tipo === 'video') {
                 const buffer = Buffer.from(resultado.base64Video, 'base64');
                 const adjunto = new AttachmentBuilder(buffer, { name: 'burdel_video.mp4' });
-                await message.channel.send({
-                    content: `📹 **${message.author.displayName}** compartió un video:`,
-                    files: [adjunto],
-                    components: [botonVer()]
-                });
+                await message.channel.send({ content: `📹 **${message.author.displayName}** compartió un video:`, files: [adjunto], components: [botonVer()] });
                 await msgCargando.delete().catch(() => {});
                 console.log(`✅ Video subido para ${message.author.username} via ${hfUrl}`);
                 exito = true;
                 break;
             }
-
         } catch (err) {
             console.log(`⚠️ ${hfUrl} falló: ${err.message} — probando siguiente...`);
         }
@@ -498,13 +718,13 @@ client.on(Events.MessageCreate, async message => {
     if (!exito) {
         const red   = esInstagram ? 'Instagram' : esTwitter ? 'X' : esYoutube ? 'YouTube' : 'TikTok';
         const emoji = esInstagram ? '📸' : esTwitter ? '🐦' : esYoutube ? '▶️' : '🎵';
-        await msgCargando.edit({
-            content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`,
-            components: [botonVer()]
-        });
+        await msgCargando.edit({ content: `${emoji} **${message.author.displayName}** compartió algo de ${red}:`, components: [botonVer()] });
     }
 });
 
+// ─────────────────────────────────────────────
+// SERVIDOR HTTP
+// ─────────────────────────────────────────────
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end("Bot online");
@@ -513,16 +733,10 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor HTTP listo en el puerto ${PORT}`);
     console.log("🔍 Variables de entorno:");
-    if (!process.env.TOKEN) {
-        console.log("❌ TOKEN vacío.");
-    } else {
-        console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`);
-    }
-    if (!HUGGING_FACE_URL) {
-        console.log("⚠️  HUGGING_FACE_URL no configurada.");
-    } else {
-        console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`);
-    }
+    if (!process.env.TOKEN) { console.log("❌ TOKEN vacío."); }
+    else { console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`); }
+    if (!HUGGING_FACE_URL) { console.log("⚠️  HUGGING_FACE_URL no configurada."); }
+    else { console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`); }
     client.login(process.env.TOKEN).catch(err => {
         console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
     });
