@@ -119,12 +119,13 @@ async function obtenerPartidosFutbolHoy() {
         const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
         const eventos = [];
 
+        const anio = new Date().getFullYear();
+        const temporada = (new Date().getMonth() + 1) < 7 ? anio - 1 : anio;
+
         for (const ligaId of LIGAS_FUTBOL) {
             try {
                 const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
-                    const anio = new Date().getFullYear();
-const temporada = (new Date().getMonth() + 1) < 7 ? anio - 1 : anio;
-params: { league: ligaId, date: hoy, season: temporada },
+                    params: { league: ligaId, date: hoy, season: temporada },
                     headers: { 'x-apisports-key': APIFOOTBALL_KEY },
                     timeout: 10000
                 });
