@@ -242,22 +242,25 @@ async function inicializarMensajeAgenda() {
         }
 
         const fila1 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('agenda_ver').setLabel('📅 Ver agenda del día').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('agenda_ver').setLabel('📅 Ver agenda del día').setStyle(ButtonStyle.Primary)
+        );
+        const filaSep = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('sep_notif').setLabel('🔔 Activá tus notificaciones').setStyle(ButtonStyle.Secondary).setDisabled(true)
         );
         const fila2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('rol_futbol').setLabel('⚽ Fútbol').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('rol_tenis').setLabel('🎾 Tenis').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('rol_boxeo').setLabel('🥊 Boxeo').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('rol_ufc').setLabel('🔴 UFC').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('rol_boxeo').setLabel('🥊 Boxeo').setStyle(ButtonStyle.Secondary)
         );
         const fila3 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rol_ufc').setLabel('🔴 UFC').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('rol_basket').setLabel('🏀 Básquet').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('rol_f1').setLabel('🏎️ F1').setStyle(ButtonStyle.Secondary)
         );
 
         await canal.send({
-            content: '🏆 **AGENDA DEPORTIVA DEL BURDEL** 🏆\n\n📅 Presioná **Ver agenda del día** para ver todos los eventos de hoy con sus horarios.\n\n🔔 **Activá tus notificaciones** — clickeá el deporte que seguís y te avisamos 5 minutos antes de cada evento:',
-            components: [fila1, fila2, fila3]
+            content: '🏆 **AGENDA DEPORTIVA DEL BURDEL** 🏆',
+            components: [fila1, filaSep, fila2, fila3]
         });
         console.log('📌 Mensaje de agenda creado.');
     } catch (e) {
