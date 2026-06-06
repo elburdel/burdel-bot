@@ -124,12 +124,14 @@ async function obtenerPartidosFutbolHoy() {
 
         for (const ligaId of LIGAS_FUTBOL) {
             try {
+                console.log(`🔍 API-Football: liga ${ligaId} temporada ${temporada} fecha ${hoy}`);
                 const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
                     params: { league: ligaId, date: hoy, season: temporada },
                     headers: { 'x-apisports-key': APIFOOTBALL_KEY },
                     timeout: 10000
                 });
                 const fixtures = resp.data?.response || [];
+                console.log(`⚽ Liga ${ligaId}: ${fixtures.length} partidos — errors: ${JSON.stringify(resp.data?.errors).substring(0, 100)}`);
                 for (const f of fixtures) {
                     const horaUTC = f.fixture?.date;
                     if (!horaUTC) continue;
