@@ -40,7 +40,7 @@ const CANAL_BASE_DATOS     = '1508589852638052474';
 const CANAL_AGENDA         = '1512928070758174871';
 
 // Ligas de fútbol a monitorear
-const LIGAS_FUTBOL = [10, 2, 3, 4, 9, 13, 61, 62, 71, 78, 88, 94, 135, 140, 143, 144, 203, 253, 307, 333, 383];
+const LIGAS_FUTBOL = [1, 10, 2, 3, 4, 9, 13, 61, 62, 71, 78, 88, 94, 135, 140, 143, 144, 203, 253, 307, 333, 383];
 // 2=Champions, 3=Europa League, 4=Conference, 9=Bundesliga, 13=Ligue 1,
 // 61=Ligue 1 FR, 62=Ligue 2, 71=Serie A BR, 78=Bundesliga, 88=Eredivisie,
 // 94=Primeira Liga, 135=Serie A IT, 140=La Liga, 143=Copa del Rey,
@@ -122,7 +122,9 @@ async function obtenerPartidosFutbolHoy() {
         for (const ligaId of LIGAS_FUTBOL) {
             try {
                 const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
-                    params: { league: ligaId, date: hoy, season: new Date().getFullYear() },
+                    const anio = new Date().getFullYear();
+const temporada = (new Date().getMonth() + 1) < 7 ? anio - 1 : anio;
+params: { league: ligaId, date: hoy, season: temporada },
                     headers: { 'x-apisports-key': APIFOOTBALL_KEY },
                     timeout: 10000
                 });
