@@ -22,7 +22,6 @@ const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
-const APIFOOTBALL_KEY  = process.env.APIFOOTBALL_KEY || 'f1f6ec6787ed0803894e7fdcef7ce20b';
 
 const client = new Client({
     intents: [
@@ -40,7 +39,6 @@ const CANAL_BASE_DATOS     = '1508589852638052474';
 const CANAL_AGENDA         = '1512928070758174871';
 
 // Ligas de fútbol a monitorear
-const LIGAS_FUTBOL = [1, 10, 2, 3, 4, 9, 13, 61, 62, 71, 78, 88, 94, 135, 140, 143, 144, 203, 253, 307, 333, 383];
 // 2=Champions, 3=Europa League, 4=Conference, 9=Bundesliga, 13=Ligue 1,
 // 61=Ligue 1 FR, 62=Ligue 2, 71=Serie A BR, 78=Bundesliga, 88=Eredivisie,
 // 94=Primeira Liga, 135=Serie A IT, 140=La Liga, 143=Copa del Rey,
@@ -115,44 +113,7 @@ async function recuperarDesdeDiscord() {
 // ─────────────────────────────────────────────
 
 async function obtenerPartidosFutbolHoy() {
-    try {
-        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
-        const eventos = [];
-
-        const anio = new Date().getFullYear();
-        const temporada = anio; // usar año actual siempre
-
-        for (const ligaId of LIGAS_FUTBOL) {
-            try {
-                console.log(`🔍 API-Football: liga ${ligaId} temporada ${temporada} fecha ${hoy}`);
-                const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
-                    params: { league: ligaId, date: hoy, season: temporada },
-                    headers: { 'x-apisports-key': APIFOOTBALL_KEY },
-                    timeout: 10000
-                });
-                const fixtures = resp.data?.response || [];
-                console.log(`⚽ Liga ${ligaId}: ${fixtures.length} partidos — errors: ${JSON.stringify(resp.data?.errors).substring(0, 100)}`);
-                for (const f of fixtures) {
-                    const horaUTC = f.fixture?.date;
-                    if (!horaUTC) continue;
-                    const horaAR = moment(horaUTC).tz('America/Argentina/Buenos_Aires');
-                    eventos.push({
-                        deporte: 'futbol',
-                        emoji: '⚽',
-                        hora: horaAR,
-                        descripcion: `${f.teams?.home?.name} vs ${f.teams?.away?.name}`,
-                        liga: f.league?.name || '',
-                        rolMencion: 'Fútbol'
-                    });
-                }
-                await new Promise(r => setTimeout(r, 200)); // respetar rate limit
-            } catch(e) { /* ignorar liga con error */ }
-        }
-        return eventos;
-    } catch (e) {
-        console.error('⚠️ Error obteniendo fútbol:', e.message);
-        return [];
-    }
+    return obtenerEventosTheSportsDB('Soccer');
 }
 
 async function obtenerEventosTheSportsDB(deporte) {
@@ -171,11 +132,14 @@ async function obtenerEventosTheSportsDB(deporte) {
             const horaAR = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
             let emoji = '🏆';
             let rolMencion = deporte;
+            if (deporte === 'Soccer') { emoji = '⚽'; rolMencion = 'Fútbol'; }
             if (deporte === 'Tennis') { emoji = '🎾'; rolMencion = 'Tenis'; }
             if (deporte === 'Basketball') { emoji = '🏀'; rolMencion = 'Básquet'; }
             if (deporte === 'Boxing') { emoji = '🥊'; rolMencion = 'Boxeo'; }
             if (deporte === 'MMA') { emoji = '🔴'; rolMencion = 'UFC'; }
             if (deporte === 'Motorsport') { emoji = '🏎️'; rolMencion = 'F1'; }
+            if (deporte === 'Golf') { emoji = '⛳'; rolMencion = 'Golf'; }
+            if (deporte === 'Ice Hockey') { emoji = '🏒'; rolMencion = 'NHL'; }
             return {
                 deporte: deporte.toLowerCase(),
                 emoji,
@@ -192,15 +156,17 @@ async function obtenerEventosTheSportsDB(deporte) {
 }
 
 async function obtenerTodosLosEventosHoy() {
-    const [futbol, tenis, basket, boxeo, ufc, f1] = await Promise.all([
+    const [futbol, tenis, basket, boxeo, ufc, f1, golf, nhl] = await Promise.all([
         obtenerPartidosFutbolHoy(),
         obtenerEventosTheSportsDB('Tennis'),
         obtenerEventosTheSportsDB('Basketball'),
         obtenerEventosTheSportsDB('Boxing'),
         obtenerEventosTheSportsDB('MMA'),
-        obtenerEventosTheSportsDB('Motorsport')
+        obtenerEventosTheSportsDB('Motorsport'),
+        obtenerEventosTheSportsDB('Golf'),
+        obtenerEventosTheSportsDB('Ice Hockey')
     ]);
-    const todos = [...futbol, ...tenis, ...basket, ...boxeo, ...ufc, ...f1];
+    const todos = [...futbol, ...tenis, ...basket, ...boxeo, ...ufc, ...f1, ...golf, ...nhl];
     todos.sort((a, b) => a.hora.valueOf() - b.hora.valueOf());
     return todos;
 }
@@ -259,10 +225,14 @@ async function inicializarMensajeAgenda() {
             new ButtonBuilder().setCustomId('rol_basket').setLabel('🏀 Básquet').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('rol_f1').setLabel('🏎️ F1').setStyle(ButtonStyle.Secondary)
         );
+        const fila4 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rol_golf').setLabel('⛳ Golf').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rol_nhl').setLabel('🏒 NHL').setStyle(ButtonStyle.Secondary)
+        );
 
         await canal.send({
             content: '🏆 **AGENDA DEPORTIVA DEL BURDEL** 🏆',
-            components: [fila1, filaSep, fila2, fila3]
+            components: [fila1, filaSep, fila2, fila3, fila4]
         });
         console.log('📌 Mensaje de agenda creado.');
     } catch (e) {
@@ -502,7 +472,9 @@ client.on(Events.InteractionCreate, async interaction => {
             'rol_boxeo':  { nombre: 'Boxeo',    color: 0xFF0000 },
             'rol_ufc':    { nombre: 'UFC',      color: 0xFF4500 },
             'rol_basket': { nombre: 'Básquet',  color: 0xFF8C00 },
-            'rol_f1':     { nombre: 'F1',       color: 0xE10600 }
+            'rol_f1':     { nombre: 'F1',       color: 0xE10600 },
+            'rol_golf':   { nombre: 'Golf',     color: 0x006400 },
+            'rol_nhl':    { nombre: 'NHL',      color: 0x001F5B }
         };
         const rolInfo = roles[interaction.customId];
         if (rolInfo) {
