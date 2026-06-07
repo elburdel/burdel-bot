@@ -113,74 +113,54 @@ async function recuperarDesdeDiscord() {
 // AGENDA DEPORTIVA — APIs
 // ─────────────────────────────────────────────
 
-// Competiciones gratuitas de football-data.org
-const COMPETICIONES_FUTBOL = [
-    { code: 'WC',  nombre: 'Mundial FIFA' },
-    { code: 'CL',  nombre: 'Champions League' },
-    { code: 'EL',  nombre: 'Europa League' },
-    { code: 'PL',  nombre: 'Premier League' },
-    { code: 'PD',  nombre: 'La Liga' },
-    { code: 'SA',  nombre: 'Serie A' },
-    { code: 'BL1', nombre: 'Bundesliga' },
-    { code: 'FL1', nombre: 'Ligue 1' },
-    { code: 'DED', nombre: 'Eredivisie' },
-    { code: 'PPL', nombre: 'Primeira Liga' },
-    { code: 'CLI', nombre: 'Copa Libertadores' },
-    { code: 'BSA', nombre: 'Brasileirao' }
-];
+// Mapa de competiciones para football-data.org
+const NOMBRE_COMPETICION = {
+    'WC': 'Mundial FIFA', 'CL': 'Champions League', 'EL': 'Europa League',
+    'PL': 'Premier League', 'PD': 'La Liga', 'SA': 'Serie A',
+    'BL1': 'Bundesliga', 'FL1': 'Ligue 1', 'DED': 'Eredivisie',
+    'PPL': 'Primeira Liga', 'CLI': 'Copa Libertadores', 'BSA': 'Brasileirao'
+};
 
 async function obtenerPartidosFutbolHoy() {
     try {
         const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
-        const eventos = [];
 
-        for (const comp of COMPETICIONES_FUTBOL) {
-            try {
-                const resp = await axios.get(
-                    `https://api.football-data.org/v4/competitions/${comp.code}/matches`,
-                    {
-                        params: { dateFrom: hoy, dateTo: hoy },
-                        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
-                        timeout: 10000
-                    }
-                );
-
-                // Respetar rate limit — leer header X-RequestsAvailable
-                const requestsLeft = resp.headers['x-requestsavailable'];
-                if (requestsLeft && parseInt(requestsLeft) < 5) {
-                    console.log(`⚠️ football-data.org: quedan solo ${requestsLeft} requests`);
-                    break;
-                }
-
-                const matches = resp.data?.matches || [];
-                console.log(`⚽ ${comp.nombre}: ${matches.length} partidos`);
-
-                for (const m of matches) {
-                    const horaUTC = m.utcDate;
-                    if (!horaUTC) continue;
-                    const horaAR = moment(horaUTC).tz('America/Argentina/Buenos_Aires');
-                    eventos.push({
-                        deporte: 'futbol',
-                        emoji: '⚽',
-                        hora: horaAR,
-                        descripcion: `${m.homeTeam?.shortName || m.homeTeam?.name} vs ${m.awayTeam?.shortName || m.awayTeam?.name}`,
-                        liga: comp.nombre,
-                        rolMencion: 'Fútbol'
-                    });
-                }
-
-                await new Promise(r => setTimeout(r, 500)); // respetar rate limit
-            } catch(e) {
-                if (e.response?.status === 429) {
-                    console.log(`⚠️ Rate limit alcanzado en football-data.org`);
-                    break;
-                }
-                // ignorar competición con error (ej: 404 si no hay partidos)
+        // Un solo request para todos los partidos del día
+        const resp = await axios.get(
+            'https://api.football-data.org/v4/matches',
+            {
+                params: { dateFrom: hoy, dateTo: hoy },
+                headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
+                timeout: 15000
             }
+        );
+
+        const matches = resp.data?.matches || [];
+        console.log(`⚽ football-data.org: ${matches.length} partidos hoy`);
+
+        const eventos = [];
+        for (const m of matches) {
+            const horaUTC = m.utcDate;
+            if (!horaUTC) continue;
+            const horaAR = moment(horaUTC).tz('America/Argentina/Buenos_Aires');
+            const compCode = m.competition?.code || '';
+            const liga = NOMBRE_COMPETICION[compCode] || m.competition?.name || compCode;
+            eventos.push({
+                deporte: 'futbol',
+                emoji: '⚽',
+                hora: horaAR,
+                descripcion: `${m.homeTeam?.shortName || m.homeTeam?.name} vs ${m.awayTeam?.shortName || m.awayTeam?.name}`,
+                liga,
+                rolMencion: 'Fútbol'
+            });
         }
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error obteniendo fútbol:', e.message);
+        if (e.response?.status === 429) {
+            console.log('⚠️ Rate limit football-data.org');
+        } else {
+            console.error('⚠️ Error obteniendo fútbol:', e.message);
+        }
         return [];
     }
 }
