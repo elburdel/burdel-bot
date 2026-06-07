@@ -177,12 +177,12 @@ async function obtenerEventosTheSportsDB(deporte) {
             const horaStr = e.strTime;
             const fechaStr = e.dateEvent || hoy;
             // Si no tiene hora válida, descartar el evento
-            if (!horaStr || horaStr === '00:00:00' || horaStr === '') continue;
+            if (!horaStr || horaStr === '00:00:00' || horaStr === '') return null;
             // TheSportsDB devuelve hora en UK time (UTC+1 en verano), convertir a AR
             const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'Europe/London');
             const horaAR = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
             // Descartar si la hora resultante es inválida
-            if (!horaAR.isValid()) continue;
+            if (!horaAR.isValid()) return null;
             let emoji = '🏆';
             let rolMencion = deporte;
             if (deporte === 'Soccer') { emoji = '⚽'; rolMencion = 'Fútbol'; }
@@ -201,7 +201,7 @@ async function obtenerEventosTheSportsDB(deporte) {
                 liga: e.strLeague || '',
                 rolMencion
             };
-        });
+        }).filter(Boolean);
     } catch (e) {
         console.error(`⚠️ Error TheSportsDB (${deporte}):`, e.message);
         return [];
