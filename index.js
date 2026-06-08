@@ -22,7 +22,7 @@ const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
-const API_SPORTS_KEY = process.env.API_SPORTS_KEY || '';
+const API_SPORTS_KEY = process.env.APIFOOTBALL_KEY || '';
 
 const client = new Client({
     intents: [
@@ -199,10 +199,10 @@ async function obtenerFutbolApiSports() {
     }
 }
 
-// ── Básquet: v1.basketball.api-sports.io ──
+// ── Básquet: v2.nba.api-sports.io ──
 async function obtenerBasketApiSports() {
     try {
-        const resp = await axios.get('https://v1.basketball.api-sports.io/games', {
+        const resp = await axios.get('https://v2.nba.api-sports.io/games', {
             params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
             headers: { 'x-apisports-key': API_SPORTS_KEY },
             timeout: 15000
@@ -210,13 +210,13 @@ async function obtenerBasketApiSports() {
         const games = resp.data?.response || [];
         const eventos = [];
         for (const g of games) {
-            if (!LIGAS_BASKET.has(g.league?.id)) continue;
-            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
+            // v2.nba no filtra por league ID — todos los juegos son NBA
+            const hora = moment(g.date?.start).tz('America/Argentina/Buenos_Aires');
             if (!hora.isValid()) continue;
             eventos.push({
                 deporte: 'basket', emoji: '🏀', hora,
-                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.away?.name || '?'}`,
-                liga: g.league?.name || 'NBA', rolMencion: 'Básquet'
+                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.visitors?.name || '?'}`,
+                liga: 'NBA', rolMencion: 'Básquet'
             });
         }
         console.log(`🏀 Básquet: ${eventos.length} partidos`);
@@ -227,32 +227,30 @@ async function obtenerBasketApiSports() {
     }
 }
 
-// ── Tenis: v1.tennis.api-sports.io ──
+// ── Tenis: TheSportsDB (API-Sports no incluido en el plan) ──
 async function obtenerTenisApiSports() {
     try {
-        const resp = await axios.get('https://v1.tennis.api-sports.io/games', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
-            timeout: 15000
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
+            params: { d: hoy, s: 'Tennis' },
+            timeout: 10000
         });
-        const games = resp.data?.response || [];
-        const eventos = [];
-        for (const g of games) {
-            if (!TIPOS_TENIS_PERMITIDOS.has(g.tournament?.type)) continue;
-            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
-            const j1 = g.players?.[0]?.name || g.teams?.home?.name || '?';
-            const j2 = g.players?.[1]?.name || g.teams?.away?.name || '?';
-            eventos.push({
-                deporte: 'tenis', emoji: '🎾', hora,
-                descripcion: `${j1} vs ${j2}`,
-                liga: g.tournament?.name || 'Tenis', rolMencion: 'Tenis'
-            });
-        }
-        console.log(`🎾 Tenis: ${eventos.length} partidos`);
-        return eventos;
+        const eventos = resp.data?.events || [];
+        return eventos.map(e => {
+            const horaStr = e.strTime;
+            const fechaStr = e.dateEvent || hoy;
+            if (!horaStr || horaStr === '00:00:00' || horaStr === '') return null;
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'Europe/London');
+            const horaAR = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) return null;
+            return {
+                deporte: 'tenis', emoji: '🎾', hora: horaAR,
+                descripcion: e.strEvent || 'Partido',
+                liga: e.strLeague || 'Tenis', rolMencion: 'Tenis'
+            };
+        }).filter(Boolean);
     } catch (e) {
-        console.error('⚠️ Error tenis (API-Sports):', e.message);
+        console.error('⚠️ Error tenis (TheSportsDB):', e.message);
         return [];
     }
 }
