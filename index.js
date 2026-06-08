@@ -22,7 +22,7 @@ const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
-const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY || '8c38e9707b0e49fe88f74d7da8c96a24';
+const API_SPORTS_KEY = process.env.API_SPORTS_KEY || '';
 
 const client = new Client({
     intents: [
@@ -113,62 +113,243 @@ async function recuperarDesdeDiscord() {
 // AGENDA DEPORTIVA — APIs
 // ─────────────────────────────────────────────
 
-// Mapa de competiciones para football-data.org
-const NOMBRE_COMPETICION = {
-    'WC': 'Mundial FIFA', 'CL': 'Champions League', 'EL': 'Europa League',
-    'PL': 'Premier League', 'PD': 'La Liga', 'SA': 'Serie A',
-    'BL1': 'Bundesliga', 'FL1': 'Ligue 1', 'DED': 'Eredivisie',
-    'PPL': 'Primeira Liga', 'CLI': 'Copa Libertadores', 'BSA': 'Brasileirao'
+// ═══════════════════════════════════════════════════════════════
+// CACHÉ GLOBAL DE AGENDA
+// El botón "Ver Agenda" lee esta variable — nunca llama a la API.
+// Se rellena una vez a la madrugada (o al arrancar el bot).
+// ═══════════════════════════════════════════════════════════════
+let agendaCache = { fecha: null, eventos: [] };
+
+// ── Listas blancas de ligas por deporte (IDs de api-sports.io) ──
+
+const LIGAS_FUTBOL = new Set([
+    2,    // UEFA Champions League
+    3,    // UEFA Europa League
+    4,    // UEFA Conference League
+    10,   // World - International Friendlies (amistosos de selección)
+    15,   // FIFA World Cup
+    16,   // UEFA Euro
+    9,    // Copa América
+    29,   // Argentina - Liga Profesional
+    26,   // Argentina - Copa de la Liga Profesional
+    30,   // Argentina - Primera Nacional (B Nacional)
+    34,   // Argentina - Copa Argentina
+    39,   // England - Premier League
+    61,   // France - Ligue 1
+    71,   // Brazil - Série A (Brasileirão)
+    78,   // Germany - Bundesliga
+    135,  // Italy - Serie A
+    140,  // Spain - La Liga
+    141,  // Spain - Copa del Rey
+    144,  // CONMEBOL - Libertadores
+    11,   // CONMEBOL - Sudamericana
+    13,   // CONMEBOL - World Cup Qualifying
+]);
+
+const NOMBRE_LIGA_FUTBOL = {
+    2: 'Champions League', 3: 'Europa League', 4: 'Conference League',
+    10: 'Amistosos internacionales', 15: 'Mundial FIFA', 16: 'Eurocopa',
+    9: 'Copa América', 29: 'Liga Profesional Argentina', 26: 'Copa de la Liga',
+    30: 'Primera Nacional', 34: 'Copa Argentina', 39: 'Premier League',
+    61: 'Ligue 1', 71: 'Brasileirão', 78: 'Bundesliga', 135: 'Serie A',
+    140: 'La Liga', 141: 'Copa del Rey', 144: 'Copa Libertadores',
+    11: 'Copa Sudamericana', 13: 'Eliminatorias Mundial',
 };
 
-async function obtenerPartidosFutbolHoy() {
+const LIGAS_BASKET  = new Set([12]);  // NBA
+const LIGAS_MMA     = new Set([1]);   // UFC
+const LIGAS_NHL     = new Set([57]);  // NHL
+
+const TIPOS_TENIS_PERMITIDOS = new Set([
+    'Grand Slam', 'ATP Masters 1000', 'ATP 500', 'WTA 1000', 'WTA 500'
+]);
+
+function fechaHoy() {
+    return moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
+}
+
+// ── Fútbol: api-football (v3) ──
+async function obtenerFutbolApiSports() {
     try {
-        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
-
-        // Un solo request para todos los partidos del día
-        const resp = await axios.get(
-            'https://api.football-data.org/v4/matches',
-            {
-                params: { dateFrom: hoy, dateTo: hoy },
-                headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
-                timeout: 15000
-            }
-        );
-
-        const matches = resp.data?.matches || [];
-        console.log(`⚽ football-data.org: ${matches.length} partidos hoy`);
-
+        const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const fixtures = resp.data?.response || [];
+        console.log(`⚽ API-Football: ${fixtures.length} partidos totales hoy`);
         const eventos = [];
-        for (const m of matches) {
-            const horaUTC = m.utcDate;
-            if (!horaUTC) continue;
-            const horaAR = moment(horaUTC).tz('America/Argentina/Buenos_Aires');
-            const compCode = m.competition?.code || '';
-            const liga = NOMBRE_COMPETICION[compCode] || m.competition?.name || compCode;
+        for (const f of fixtures) {
+            const leagueId = f.league?.id;
+            if (!LIGAS_FUTBOL.has(leagueId)) continue;
+            const hora = moment(f.fixture?.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
             eventos.push({
-                deporte: 'futbol',
-                emoji: '⚽',
-                hora: horaAR,
-                descripcion: `${m.homeTeam?.shortName || m.homeTeam?.name} vs ${m.awayTeam?.shortName || m.awayTeam?.name}`,
-                liga,
+                deporte: 'futbol', emoji: '⚽', hora,
+                descripcion: `${f.teams?.home?.name || '?'} vs ${f.teams?.away?.name || '?'}`,
+                liga: NOMBRE_LIGA_FUTBOL[leagueId] || f.league?.name || 'Fútbol',
                 rolMencion: 'Fútbol'
             });
         }
+        console.log(`⚽ Fútbol filtrado: ${eventos.length} partidos`);
         return eventos;
     } catch (e) {
-        if (e.response?.status === 429) {
-            console.log('⚠️ Rate limit football-data.org');
-        } else {
-            console.error('⚠️ Error obteniendo fútbol:', e.message);
-        }
+        console.error('⚠️ Error fútbol (API-Sports):', e.message);
         return [];
     }
 }
 
+// ── Básquet: v1.basketball.api-sports.io ──
+async function obtenerBasketApiSports() {
+    try {
+        const resp = await axios.get('https://v1.basketball.api-sports.io/games', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const games = resp.data?.response || [];
+        const eventos = [];
+        for (const g of games) {
+            if (!LIGAS_BASKET.has(g.league?.id)) continue;
+            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
+            eventos.push({
+                deporte: 'basket', emoji: '🏀', hora,
+                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.away?.name || '?'}`,
+                liga: g.league?.name || 'NBA', rolMencion: 'Básquet'
+            });
+        }
+        console.log(`🏀 Básquet: ${eventos.length} partidos`);
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error básquet (API-Sports):', e.message);
+        return [];
+    }
+}
+
+// ── Tenis: v1.tennis.api-sports.io ──
+async function obtenerTenisApiSports() {
+    try {
+        const resp = await axios.get('https://v1.tennis.api-sports.io/games', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const games = resp.data?.response || [];
+        const eventos = [];
+        for (const g of games) {
+            if (!TIPOS_TENIS_PERMITIDOS.has(g.tournament?.type)) continue;
+            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
+            const j1 = g.players?.[0]?.name || g.teams?.home?.name || '?';
+            const j2 = g.players?.[1]?.name || g.teams?.away?.name || '?';
+            eventos.push({
+                deporte: 'tenis', emoji: '🎾', hora,
+                descripcion: `${j1} vs ${j2}`,
+                liga: g.tournament?.name || 'Tenis', rolMencion: 'Tenis'
+            });
+        }
+        console.log(`🎾 Tenis: ${eventos.length} partidos`);
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error tenis (API-Sports):', e.message);
+        return [];
+    }
+}
+
+// ── MMA/UFC: v1.mma.api-sports.io ──
+async function obtenerMMAApiSports() {
+    try {
+        const resp = await axios.get('https://v1.mma.api-sports.io/fights', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const fights = resp.data?.response || [];
+        const eventos = [];
+        for (const f of fights) {
+            if (!LIGAS_MMA.has(f.league?.id)) continue;
+            const hora = moment(f.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
+            const f1n = f.fighters?.[0]?.name || '?';
+            const f2n = f.fighters?.[1]?.name || '?';
+            eventos.push({
+                deporte: 'mma', emoji: '🔴', hora,
+                descripcion: `${f1n} vs ${f2n}`,
+                liga: f.league?.name || 'UFC', rolMencion: 'UFC'
+            });
+        }
+        console.log(`🔴 MMA/UFC: ${eventos.length} peleas`);
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error MMA (API-Sports):', e.message);
+        return [];
+    }
+}
+
+// ── Fórmula 1: v1.formula-1.api-sports.io ──
+async function obtenerF1ApiSports() {
+    try {
+        const resp = await axios.get('https://v1.formula-1.api-sports.io/races', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const races = resp.data?.response || [];
+        const eventos = [];
+        for (const r of races) {
+            const hora = moment(r.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
+            const tipo = (r.type || '').toLowerCase();
+            if (tipo.includes('practice')) continue; // descartar libres
+            eventos.push({
+                deporte: 'f1', emoji: '🏎️', hora,
+                descripcion: r.competition?.name || r.description || 'Gran Premio',
+                liga: tipo.includes('qualifying') ? 'Clasificación' : 'Carrera',
+                rolMencion: 'F1'
+            });
+        }
+        console.log(`🏎️ F1: ${eventos.length} sesiones`);
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error F1 (API-Sports):', e.message);
+        return [];
+    }
+}
+
+// ── NHL: v1.hockey.api-sports.io ──
+async function obtenerNHLApiSports() {
+    try {
+        const resp = await axios.get('https://v1.hockey.api-sports.io/games', {
+            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
+            headers: { 'x-apisports-key': API_SPORTS_KEY },
+            timeout: 15000
+        });
+        const games = resp.data?.response || [];
+        const eventos = [];
+        for (const g of games) {
+            if (!LIGAS_NHL.has(g.league?.id)) continue;
+            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
+            if (!hora.isValid()) continue;
+            eventos.push({
+                deporte: 'nhl', emoji: '🏒', hora,
+                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.away?.name || '?'}`,
+                liga: 'NHL', rolMencion: 'NHL'
+            });
+        }
+        console.log(`🏒 NHL: ${eventos.length} partidos`);
+        return eventos;
+    } catch (e) {
+        console.error('⚠️ Error NHL (API-Sports):', e.message);
+        return [];
+    }
+}
+
+// ── Golf y Boxeo: se mantiene TheSportsDB (API-Sports no los cubre bien) ──
 async function obtenerEventosTheSportsDB(deporte) {
     try {
-        const hoy = moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
-        const resp = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php`, {
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
             params: { d: hoy, s: deporte },
             timeout: 10000
         });
@@ -176,30 +357,17 @@ async function obtenerEventosTheSportsDB(deporte) {
         return eventos.map(e => {
             const horaStr = e.strTime;
             const fechaStr = e.dateEvent || hoy;
-            // Si no tiene hora válida, descartar el evento
             if (!horaStr || horaStr === '00:00:00' || horaStr === '') return null;
-            // TheSportsDB devuelve hora en UK time (UTC+1 en verano), convertir a AR
             const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'Europe/London');
             const horaAR = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
-            // Descartar si la hora resultante es inválida
             if (!horaAR.isValid()) return null;
-            let emoji = '🏆';
-            let rolMencion = deporte;
-            if (deporte === 'Soccer') { emoji = '⚽'; rolMencion = 'Fútbol'; }
-            if (deporte === 'Tennis') { emoji = '🎾'; rolMencion = 'Tenis'; }
-            if (deporte === 'Basketball') { emoji = '🏀'; rolMencion = 'Básquet'; }
-            if (deporte === 'Boxing') { emoji = '🥊'; rolMencion = 'Boxeo'; }
-            if (deporte === 'MMA') { emoji = '🔴'; rolMencion = 'UFC'; }
-            if (deporte === 'Motorsport') { emoji = '🏎️'; rolMencion = 'F1'; }
-            if (deporte === 'Golf') { emoji = '⛳'; rolMencion = 'Golf'; }
-            if (deporte === 'Ice Hockey') { emoji = '🏒'; rolMencion = 'NHL'; }
+            const esGolf = deporte === 'Golf';
             return {
                 deporte: deporte.toLowerCase(),
-                emoji,
-                hora: horaAR,
+                emoji: esGolf ? '⛳' : '🥊', hora: horaAR,
                 descripcion: e.strEvent || 'Evento',
                 liga: e.strLeague || '',
-                rolMencion
+                rolMencion: esGolf ? 'Golf' : 'Boxeo'
             };
         }).filter(Boolean);
     } catch (e) {
@@ -208,38 +376,48 @@ async function obtenerEventosTheSportsDB(deporte) {
     }
 }
 
-async function obtenerTodosLosEventosHoy() {
-    const [futbol, tenis, basket, boxeo, ufc, f1, golf, nhl] = await Promise.all([
-        obtenerPartidosFutbolHoy(),
-        obtenerEventosTheSportsDB('Tennis'),
-        obtenerEventosTheSportsDB('Basketball'),
-        obtenerEventosTheSportsDB('Boxing'),
-        obtenerEventosTheSportsDB('MMA'),
-        obtenerEventosTheSportsDB('Motorsport'),
+// ── Refresca la caché — solo llamar desde CronJob o al arrancar ──
+async function refrescarCacheAgenda() {
+    console.log('📡 Refrescando caché de agenda deportiva...');
+    const [futbol, basket, tenis, mma, f1, nhl, golf, boxeo] = await Promise.all([
+        obtenerFutbolApiSports(),
+        obtenerBasketApiSports(),
+        obtenerTenisApiSports(),
+        obtenerMMAApiSports(),
+        obtenerF1ApiSports(),
+        obtenerNHLApiSports(),
         obtenerEventosTheSportsDB('Golf'),
-        obtenerEventosTheSportsDB('Ice Hockey')
+        obtenerEventosTheSportsDB('Boxing')
     ]);
-    const todos = [...futbol, ...tenis, ...basket, ...boxeo, ...ufc, ...f1, ...golf, ...nhl];
+    const todos = [...futbol, ...basket, ...tenis, ...mma, ...f1, ...nhl, ...golf, ...boxeo];
     todos.sort((a, b) => a.hora.valueOf() - b.hora.valueOf());
+    agendaCache = { fecha: fechaHoy(), eventos: todos };
+    console.log(`✅ Caché lista: ${todos.length} eventos para hoy (${agendaCache.fecha})`);
     return todos;
+}
+
+// ── Lectura pública de eventos (lee caché; refresca solo si está vacía) ──
+async function obtenerTodosLosEventosHoy() {
+    const hoy = fechaHoy();
+    if (agendaCache.fecha === hoy) {
+        console.log(`📦 Usando caché del día (${agendaCache.eventos.length} eventos)`);
+        return agendaCache.eventos;
+    }
+    return await refrescarCacheAgenda();
 }
 
 function formatearAgenda(eventos) {
     if (eventos.length === 0) return '📭 No hay eventos deportivos programados para hoy.';
-
     let texto = `📅 **AGENDA DEPORTIVA — ${moment().tz('America/Argentina/Buenos_Aires').format('DD/MM/YYYY')}**\n\n`;
     const grupos = {};
     for (const e of eventos) {
-        const key = e.rolMencion;
-        if (!grupos[key]) grupos[key] = [];
-        grupos[key].push(e);
+        if (!grupos[e.rolMencion]) grupos[e.rolMencion] = [];
+        grupos[e.rolMencion].push(e);
     }
     for (const [deporte, evs] of Object.entries(grupos)) {
-        const emoji = evs[0].emoji;
-        texto += `**${emoji} ${deporte.toUpperCase()}**\n`;
+        texto += `**${evs[0].emoji} ${deporte.toUpperCase()}**\n`;
         for (const ev of evs) {
-            const horaStr = ev.hora.format('HH:mm');
-            texto += `> \`${horaStr}\` ${ev.descripcion}`;
+            texto += `> \`${ev.hora.format('HH:mm')}\` ${ev.descripcion}`;
             if (ev.liga) texto += ` *(${ev.liga})*`;
             texto += '\n';
         }
@@ -454,15 +632,17 @@ client.once(Events.ClientReady, async () => {
     // Inicializar agenda deportiva
     await inicializarMensajeAgenda().catch(e => console.error('❌ Error agenda init:', e.message));
 
-    // Programar recordatorios del día al arrancar
+    // Llenar la caché una vez al arrancar y luego programar recordatorios
+    await refrescarCacheAgenda().catch(e => console.error('❌ Error cargando agenda:', e.message));
     await programarRecordatoriosDelDia().catch(e => console.error('❌ Error programando recordatorios:', e.message));
 
-    // Cada día a medianoche: limpiar mensajes viejos y reprogramar
+    // Cada día a medianoche: limpiar mensajes viejos, refrescar caché y reprogramar
     try {
         new CronJob('0 1 0 * * *', async () => {
-            console.log('🌙 Medianoche: limpiando agenda y reprogramando...');
+            console.log('🌙 Medianoche: limpiando agenda, refrescando caché y reprogramando...');
             await limpiarMensajesAgenda();
-            await programarRecordatoriosDelDia();
+            await refrescarCacheAgenda();        // ← llena la caché del día nuevo (1 sola llamada a la API)
+            await programarRecordatoriosDelDia(); // ← lee la caché, no la API
         }, null, true, 'America/Argentina/Buenos_Aires');
     } catch(err) { console.error("❌ Error CronJob medianoche:", err); }
 });
