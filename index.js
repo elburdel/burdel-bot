@@ -22,7 +22,8 @@ const moment = require('moment-timezone');
 
 const PORT = process.env.PORT || 10000;
 const HUGGING_FACE_URL = process.env.HUGGING_FACE_URL || null;
-const API_SPORTS_KEY = process.env.APIFOOTBALL_KEY || '';
+const API_SPORTS_KEY    = process.env.APIFOOTBALL_KEY || '';     // suspendida, ya no se usa
+const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY || '';
 
 const client = new Client({
     intents: [
@@ -120,14 +121,50 @@ async function recuperarDesdeDiscord() {
 // ═══════════════════════════════════════════════════════════════
 let agendaCache = { fecha: null, eventos: [] };
 
-// ── Listas blancas de ligas por deporte (IDs de api-sports.io) ──
+// ── Códigos de competición football-data.org (plan free) ──
+// WC=Mundial, CL=Champions, EL=Europa League, ECNL=Conference, EC=Eurocopa
+// PL=Premier, PD=La Liga, BL1=Bundesliga, SA=Serie A, FL1=Ligue 1
+// PPL=Primeira Liga, DED=Eredivisie, BSA=Brasileirão (excluido), CA=Copa América
+// ARG=Liga Profesional Argentina (no disponible en free tier)
+const COMPS_FUTBOL_FD = ['WC', 'CL', 'EL', 'ECNL', 'EC', 'CA', 'PL', 'PD', 'BL1', 'SA', 'FL1', 'PPL', 'DED'];
 
+const NOMBRE_COMP_FUTBOL = {
+    'WC':   'Mundial FIFA 2026',
+    'CL':   'Champions League',
+    'EL':   'Europa League',
+    'ECNL': 'Conference League',
+    'EC':   'Eurocopa',
+    'CA':   'Copa América',
+    'PL':   'Premier League',
+    'PD':   'La Liga',
+    'BL1':  'Bundesliga',
+    'SA':   'Serie A',
+    'FL1':  'Ligue 1',
+    'PPL':  'Primeira Liga',
+    'DED':  'Eredivisie',
+};
+
+// IDs TheSportsDB para ligas de fútbol argentino (cubre lo q football-data no tiene)
+const TSDB_LIGAS_ARG = [
+    { id: '4406', nombre: 'Liga Profesional Argentina' },
+    { id: '4960', nombre: 'Copa Argentina' },
+    { id: '5342', nombre: 'Copa de la Liga' },
+];
+
+// Ligas adicionales fútbol via TheSportsDB
+const TSDB_LIGAS_FUTBOL_EXTRA = [
+    { id: '4144', nombre: 'Copa Libertadores' },
+    { id: '4145', nombre: 'Copa Sudamericana' },
+];
+
+// ── Listas blancas de ligas por deporte (IDs de api-sports.io) — LEGACY, ya no usadas ──
 const LIGAS_FUTBOL = new Set([
+    1,    // FIFA World Cup 2026
     2,    // UEFA Champions League
     3,    // UEFA Europa League
     4,    // UEFA Conference League
     10,   // World - International Friendlies (amistosos de selección)
-    15,   // FIFA World Cup
+    15,   // FIFA World Cup (histórico)
     16,   // UEFA Euro
     9,    // Copa América
     29,   // Argentina - Liga Profesional
@@ -147,7 +184,7 @@ const LIGAS_FUTBOL = new Set([
 ]);
 
 const NOMBRE_LIGA_FUTBOL = {
-    2: 'Champions League', 3: 'Europa League', 4: 'Conference League',
+    1: 'Mundial FIFA 2026', 2: 'Champions League', 3: 'Europa League', 4: 'Conference League',
     10: 'Amistosos internacionales', 15: 'Mundial FIFA', 16: 'Eurocopa',
     9: 'Copa América', 29: 'Liga Profesional Argentina', 26: 'Copa de la Liga',
     30: 'Primera Nacional', 34: 'Copa Argentina', 39: 'Premier League',
@@ -155,6 +192,189 @@ const NOMBRE_LIGA_FUTBOL = {
     140: 'La Liga', 141: 'Copa del Rey', 144: 'Copa Libertadores',
     11: 'Copa Sudamericana', 13: 'Eliminatorias Mundial',
 };
+
+// ── Traducción de nombres de equipos (Mundial 2026 + ligas principales) ──
+const TRADUCCION_EQUIPOS = {
+    // Grupo A - México, etc
+    'Mexico': 'México',
+    // Grupo B
+    'United States': 'Estados Unidos',
+    'USA': 'EE.UU.',
+    // Grupo C
+    'Argentina': 'Argentina',
+    // Grupo general
+    'Germany': 'Alemania',
+    'France': 'Francia',
+    'Spain': 'España',
+    'England': 'Inglaterra',
+    'Portugal': 'Portugal',
+    'Netherlands': 'Países Bajos',
+    'Brazil': 'Brasil',
+    'Uruguay': 'Uruguay',
+    'Colombia': 'Colombia',
+    'Chile': 'Chile',
+    'Ecuador': 'Ecuador',
+    'Peru': 'Perú',
+    'Paraguay': 'Paraguay',
+    'Bolivia': 'Bolivia',
+    'Venezuela': 'Venezuela',
+    'Morocco': 'Marruecos',
+    'Senegal': 'Senegal',
+    'Nigeria': 'Nigeria',
+    'Cameroon': 'Camerún',
+    'Ghana': 'Ghana',
+    'Egypt': 'Egipto',
+    'Algeria': 'Argelia',
+    'Tunisia': 'Túnez',
+    'Ivory Coast': "Costa de Marfil",
+    'South Africa': 'Sudáfrica',
+    'Japan': 'Japón',
+    'South Korea': 'Corea del Sur',
+    'Iran': 'Irán',
+    'Saudi Arabia': 'Arabia Saudita',
+    'Australia': 'Australia',
+    'New Zealand': 'Nueva Zelanda',
+    'China': 'China',
+    'Indonesia': 'Indonesia',
+    'Canada': 'Canadá',
+    'Costa Rica': 'Costa Rica',
+    'Panama': 'Panamá',
+    'Jamaica': 'Jamaica',
+    'Honduras': 'Honduras',
+    'Guatemala': 'Guatemala',
+    'Poland': 'Polonia',
+    'Belgium': 'Bélgica',
+    'Italy': 'Italia',
+    'Croatia': 'Croacia',
+    'Switzerland': 'Suiza',
+    'Denmark': 'Dinamarca',
+    'Sweden': 'Suecia',
+    'Norway': 'Noruega',
+    'Austria': 'Austria',
+    'Czech Republic': 'Rep. Checa',
+    'Hungary': 'Hungría',
+    'Slovakia': 'Eslovaquia',
+    'Slovenia': 'Eslovenia',
+    'Serbia': 'Serbia',
+    'Ukraine': 'Ucrania',
+    'Greece': 'Grecia',
+    'Turkey': 'Turquía',
+    'Romania': 'Rumania',
+    'Scotland': 'Escocia',
+    'Wales': 'Gales',
+    'Ireland': 'Irlanda',
+    'Albania': 'Albania',
+    'Georgia': 'Georgia',
+    'Russia': 'Rusia',
+    'Qatar': 'Catar',
+    'Iraq': 'Irak',
+    'Jordan': 'Jordania',
+    'Uzbekistan': 'Uzbekistán',
+    'New Caledonia': 'Nueva Caledonia',
+    'Kenya': 'Kenia',
+    'Congo DR': 'R.D. Congo',
+    'Zambia': 'Zambia',
+    // Clubes Premier League
+    'Manchester City': 'Manchester City',
+    'Manchester United': 'Manchester United',
+    'Arsenal': 'Arsenal',
+    'Chelsea': 'Chelsea',
+    'Liverpool': 'Liverpool',
+    'Tottenham': 'Tottenham',
+    'Newcastle': 'Newcastle',
+    'Aston Villa': 'Aston Villa',
+    // Clubes La Liga
+    'Real Madrid': 'Real Madrid',
+    'Barcelona': 'Barcelona',
+    'Atletico Madrid': 'Atlético Madrid',
+    'Sevilla': 'Sevilla',
+    'Valencia': 'Valencia',
+    'Villarreal': 'Villarreal',
+    'Athletic Club': 'Athletic Club',
+    'Real Sociedad': 'Real Sociedad',
+    // Clubes Serie A
+    'Juventus': 'Juventus',
+    'Inter': 'Inter',
+    'AC Milan': 'Milan',
+    'Napoli': 'Nápoli',
+    'Roma': 'Roma',
+    'Lazio': 'Lazio',
+    // Clubes Bundesliga
+    'Bayern Munich': 'Bayern Múnich',
+    'Borussia Dortmund': 'Dortmund',
+    'RB Leipzig': 'Leipzig',
+    'Bayer Leverkusen': 'Leverkusen',
+    // Clubes Ligue 1
+    'Paris Saint-Germain': 'PSG',
+    'Marseille': 'Marsella',
+    'Lyon': 'Lyon',
+    'Monaco': 'Mónaco',
+    // Clubes Argentina
+    'River Plate': 'River Plate',
+    'Boca Juniors': 'Boca Juniors',
+    'Racing Club': 'Racing',
+    'Independiente': 'Independiente',
+    'San Lorenzo': 'San Lorenzo',
+    'Huracan': 'Huracán',
+    'Estudiantes': 'Estudiantes',
+    'Lanus': 'Lanús',
+    'Talleres': 'Talleres',
+    'Atletico Tucuman': 'Atlético Tucumán',
+    'Defensa y Justicia': 'Defensa y Justicia',
+    'Belgrano': 'Belgrano',
+    'Tigre': 'Tigre',
+    'Godoy Cruz': 'Godoy Cruz',
+    'Velez Sarsfield': 'Vélez',
+    'Gimnasia La Plata': 'Gimnasia LP',
+    'Platense': 'Platense',
+    'Instituto': 'Instituto',
+    'Sarmiento': 'Sarmiento',
+    'Newells Old Boys': "Newell's",
+    'Rosario Central': 'Rosario Central',
+    'Union de Santa Fe': 'Unión',
+    'Colon': 'Colón',
+    'Central Cordoba': 'Central Córdoba',
+    'Banfield': 'Banfield',
+    'Argentinos Juniors': 'Argentinos Jrs',
+    'Quilmes': 'Quilmes',
+    'San Martin Tucuman': 'San Martín T',
+    // NBA
+    'Los Angeles Lakers': 'Lakers',
+    'Golden State Warriors': 'Warriors',
+    'Boston Celtics': 'Celtics',
+    'Miami Heat': 'Heat',
+    'Chicago Bulls': 'Bulls',
+    'New York Knicks': 'Knicks',
+    'Brooklyn Nets': 'Nets',
+    'Philadelphia 76ers': '76ers',
+    'Milwaukee Bucks': 'Bucks',
+    'Toronto Raptors': 'Raptors',
+    'Denver Nuggets': 'Nuggets',
+    'Phoenix Suns': 'Suns',
+    'Dallas Mavericks': 'Mavericks',
+    'San Antonio Spurs': 'Spurs',
+    'Oklahoma City Thunder': 'Thunder',
+    'Houston Rockets': 'Rockets',
+    'Memphis Grizzlies': 'Grizzlies',
+    'New Orleans Pelicans': 'Pelicans',
+    'Sacramento Kings': 'Kings',
+    'Portland Trail Blazers': 'Blazers',
+    'Utah Jazz': 'Jazz',
+    'Minnesota Timberwolves': 'Timberwolves',
+    'Cleveland Cavaliers': 'Cavaliers',
+    'Indiana Pacers': 'Pacers',
+    'Atlanta Hawks': 'Hawks',
+    'Charlotte Hornets': 'Hornets',
+    'Washington Wizards': 'Wizards',
+    'Orlando Magic': 'Magic',
+    'Detroit Pistons': 'Pistons',
+    'Los Angeles Clippers': 'Clippers',
+};
+
+function traducirEquipo(nombre) {
+    if (!nombre) return '?';
+    return TRADUCCION_EQUIPOS[nombre] || nombre;
+}
 
 const LIGAS_BASKET  = new Set([12]);  // NBA
 const LIGAS_MMA     = new Set([1]);   // UFC
@@ -168,61 +388,102 @@ function fechaHoy() {
     return moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
 }
 
-// ── Fútbol: api-football (v3) ──
-async function obtenerFutbolApiSports() {
+// ── Fútbol: football-data.org (ligas internacionales) ──
+async function obtenerFutbolFootballData() {
     try {
-        const resp = await axios.get('https://v3.football.api-sports.io/fixtures', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://api.football-data.org/v4/matches', {
+            params: { dateFrom: hoy, dateTo: hoy },
+            headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
             timeout: 15000
         });
-        const fixtures = resp.data?.response || [];
-        console.log(`⚽ API-Football: ${fixtures.length} partidos totales hoy`);
+        const matches = resp.data?.matches || [];
+        console.log(`⚽ football-data.org: ${matches.length} partidos totales hoy`);
         const eventos = [];
-        for (const f of fixtures) {
-            const leagueId = f.league?.id;
-            if (!LIGAS_FUTBOL.has(leagueId)) continue;
-            const hora = moment(f.fixture?.date).tz('America/Argentina/Buenos_Aires');
+        for (const m of matches) {
+            const compCode = m.competition?.code;
+            if (!COMPS_FUTBOL_FD.includes(compCode)) continue;
+            const hora = moment(m.utcDate).tz('America/Argentina/Buenos_Aires');
             if (!hora.isValid()) continue;
+            const homeTeam = m.homeTeam?.shortName || m.homeTeam?.name || '?';
+            const awayTeam = m.awayTeam?.shortName || m.awayTeam?.name || '?';
             eventos.push({
                 deporte: 'futbol', emoji: '⚽', hora,
-                descripcion: `${f.teams?.home?.name || '?'} vs ${f.teams?.away?.name || '?'}`,
-                liga: NOMBRE_LIGA_FUTBOL[leagueId] || f.league?.name || 'Fútbol',
+                descripcion: `${homeTeam} vs ${awayTeam}`,
+                liga: NOMBRE_COMP_FUTBOL[compCode] || m.competition?.name || 'Fútbol',
                 rolMencion: 'Fútbol'
             });
         }
         console.log(`⚽ Fútbol filtrado: ${eventos.length} partidos`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error fútbol (API-Sports):', e.message);
+        console.error('⚠️ Error fútbol (football-data.org):', e.message);
         return [];
     }
 }
 
-// ── Básquet: v2.nba.api-sports.io ──
+// ── Fútbol argentino + Libertadores/Sudamericana: TheSportsDB ──
+async function obtenerFutbolTSDB() {
+    const hoy = fechaHoy();
+    const todasLasLigas = [...TSDB_LIGAS_ARG, ...TSDB_LIGAS_FUTBOL_EXTRA];
+    const eventos = [];
+    for (const liga of todasLasLigas) {
+        try {
+            const resp = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php`, {
+                params: { d: hoy, l: liga.id },
+                timeout: 10000
+            });
+            const partidos = resp.data?.events || [];
+            for (const p of partidos) {
+                const horaStr = p.strTime;
+                const fechaStr = p.dateEvent || hoy;
+                if (!horaStr || horaStr === '00:00:00') continue;
+                const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'UTC');
+                const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+                if (!horaAR.isValid()) continue;
+                eventos.push({
+                    deporte: 'futbol', emoji: '⚽', hora: horaAR,
+                    descripcion: `${p.strHomeTeam || '?'} vs ${p.strAwayTeam || '?'}`,
+                    liga: liga.nombre,
+                    rolMencion: 'Fútbol'
+                });
+            }
+        } catch (e) {
+            console.error(`⚠️ Error fútbol TSDB (${liga.nombre}):`, e.message);
+        }
+    }
+    console.log(`⚽ Fútbol ARG/CONMEBOL (TSDB): ${eventos.length} partidos`);
+    return eventos;
+}
+
+// ── Básquet (NBA): TheSportsDB ──
 async function obtenerBasketApiSports() {
     try {
-        const resp = await axios.get('https://v2.nba.api-sports.io/games', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
-            timeout: 15000
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
+            params: { d: hoy, s: 'Basketball' },
+            timeout: 10000
         });
-        const games = resp.data?.response || [];
+        const events = resp.data?.events || [];
         const eventos = [];
-        for (const g of games) {
-            // v2.nba no filtra por league ID — todos los juegos son NBA
-            const hora = moment(g.date?.start).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
+        for (const e of events) {
+            if (!e.strLeague?.includes('NBA')) continue;
+            const horaStr = e.strTime;
+            const fechaStr = e.dateEvent || hoy;
+            if (!horaStr || horaStr === '00:00:00') continue;
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'UTC');
+            const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) continue;
             eventos.push({
-                deporte: 'basket', emoji: '🏀', hora,
-                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.visitors?.name || '?'}`,
+                deporte: 'basket', emoji: '🏀', hora: horaAR,
+                descripcion: `${e.strHomeTeam || '?'} vs ${e.strAwayTeam || '?'}`,
                 liga: 'NBA', rolMencion: 'Básquet'
             });
         }
-        console.log(`🏀 Básquet: ${eventos.length} partidos`);
+        console.log(`🏀 NBA (TSDB): ${eventos.length} partidos`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error básquet (API-Sports):', e.message);
+        console.error('⚠️ Error básquet (TheSportsDB):', e.message);
         return [];
     }
 }
@@ -255,90 +516,100 @@ async function obtenerTenisApiSports() {
     }
 }
 
-// ── MMA/UFC: v1.mma.api-sports.io ──
+// ── MMA/UFC: TheSportsDB ──
 async function obtenerMMAApiSports() {
     try {
-        const resp = await axios.get('https://v1.mma.api-sports.io/fights', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
-            timeout: 15000
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
+            params: { d: hoy, s: 'MMA' },
+            timeout: 10000
         });
-        const fights = resp.data?.response || [];
+        const events = resp.data?.events || [];
         const eventos = [];
-        for (const f of fights) {
-            if (!LIGAS_MMA.has(f.league?.id)) continue;
-            const hora = moment(f.date).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
-            const f1n = f.fighters?.[0]?.name || '?';
-            const f2n = f.fighters?.[1]?.name || '?';
+        for (const e of events) {
+            const horaStr = e.strTime;
+            const fechaStr = e.dateEvent || hoy;
+            if (!horaStr || horaStr === '00:00:00') continue;
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'UTC');
+            const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) continue;
             eventos.push({
-                deporte: 'mma', emoji: '🔴', hora,
-                descripcion: `${f1n} vs ${f2n}`,
-                liga: f.league?.name || 'UFC', rolMencion: 'UFC'
+                deporte: 'mma', emoji: '🔴', hora: horaAR,
+                descripcion: e.strEvent || 'Pelea',
+                liga: e.strLeague || 'UFC', rolMencion: 'UFC'
             });
         }
-        console.log(`🔴 MMA/UFC: ${eventos.length} peleas`);
+        console.log(`🔴 MMA/UFC (TSDB): ${eventos.length} peleas`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error MMA (API-Sports):', e.message);
+        console.error('⚠️ Error MMA (TheSportsDB):', e.message);
         return [];
     }
 }
 
-// ── Fórmula 1: v1.formula-1.api-sports.io ──
+// ── Fórmula 1: TheSportsDB ──
 async function obtenerF1ApiSports() {
     try {
-        const resp = await axios.get('https://v1.formula-1.api-sports.io/races', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
-            timeout: 15000
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
+            params: { d: hoy, s: 'Motorsport' },
+            timeout: 10000
         });
-        const races = resp.data?.response || [];
+        const events = resp.data?.events || [];
         const eventos = [];
-        for (const r of races) {
-            const hora = moment(r.date).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
-            const tipo = (r.type || '').toLowerCase();
-            if (tipo.includes('practice')) continue; // descartar libres
+        for (const e of events) {
+            if (!e.strLeague?.includes('Formula') && !e.strLeague?.includes('F1')) continue;
+            const horaStr = e.strTime;
+            const fechaStr = e.dateEvent || hoy;
+            if (!horaStr || horaStr === '00:00:00') continue;
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'UTC');
+            const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) continue;
+            const nombre = (e.strEvent || '').toLowerCase();
+            if (nombre.includes('practice') || nombre.includes('libre')) continue;
             eventos.push({
-                deporte: 'f1', emoji: '🏎️', hora,
-                descripcion: r.competition?.name || r.description || 'Gran Premio',
-                liga: tipo.includes('qualifying') ? 'Clasificación' : 'Carrera',
+                deporte: 'f1', emoji: '🏎️', hora: horaAR,
+                descripcion: e.strEvent || 'Gran Premio',
+                liga: nombre.includes('qualifying') || nombre.includes('classif') ? 'Clasificación' : 'Carrera',
                 rolMencion: 'F1'
             });
         }
-        console.log(`🏎️ F1: ${eventos.length} sesiones`);
+        console.log(`🏎️ F1 (TSDB): ${eventos.length} sesiones`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error F1 (API-Sports):', e.message);
+        console.error('⚠️ Error F1 (TheSportsDB):', e.message);
         return [];
     }
 }
 
-// ── NHL: v1.hockey.api-sports.io ──
+// ── NHL: TheSportsDB ──
 async function obtenerNHLApiSports() {
     try {
-        const resp = await axios.get('https://v1.hockey.api-sports.io/games', {
-            params: { date: fechaHoy(), timezone: 'America/Argentina/Buenos_Aires' },
-            headers: { 'x-apisports-key': API_SPORTS_KEY },
-            timeout: 15000
+        const hoy = fechaHoy();
+        const resp = await axios.get('https://www.thesportsdb.com/api/v1/json/3/eventsday.php', {
+            params: { d: hoy, s: 'Ice Hockey' },
+            timeout: 10000
         });
-        const games = resp.data?.response || [];
+        const events = resp.data?.events || [];
         const eventos = [];
-        for (const g of games) {
-            if (!LIGAS_NHL.has(g.league?.id)) continue;
-            const hora = moment(g.date).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
+        for (const e of events) {
+            if (!e.strLeague?.includes('NHL')) continue;
+            const horaStr = e.strTime;
+            const fechaStr = e.dateEvent || hoy;
+            if (!horaStr || horaStr === '00:00:00') continue;
+            const horaUTC = moment.tz(`${fechaStr} ${horaStr}`, 'YYYY-MM-DD HH:mm:ss', 'UTC');
+            const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) continue;
             eventos.push({
-                deporte: 'nhl', emoji: '🏒', hora,
-                descripcion: `${g.teams?.home?.name || '?'} vs ${g.teams?.away?.name || '?'}`,
+                deporte: 'nhl', emoji: '🏒', hora: horaAR,
+                descripcion: `${e.strHomeTeam || '?'} vs ${e.strAwayTeam || '?'}`,
                 liga: 'NHL', rolMencion: 'NHL'
             });
         }
-        console.log(`🏒 NHL: ${eventos.length} partidos`);
+        console.log(`🏒 NHL (TSDB): ${eventos.length} partidos`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error NHL (API-Sports):', e.message);
+        console.error('⚠️ Error NHL (TheSportsDB):', e.message);
         return [];
     }
 }
@@ -377,8 +648,9 @@ async function obtenerEventosTheSportsDB(deporte) {
 // ── Refresca la caché — solo llamar desde CronJob o al arrancar ──
 async function refrescarCacheAgenda() {
     console.log('📡 Refrescando caché de agenda deportiva...');
-    const [futbol, basket, tenis, mma, f1, nhl, golf, boxeo] = await Promise.all([
-        obtenerFutbolApiSports(),
+    const [futbolFD, futbolArg, basket, tenis, mma, f1, nhl, golf, boxeo] = await Promise.all([
+        obtenerFutbolFootballData(),
+        obtenerFutbolTSDB(),
         obtenerBasketApiSports(),
         obtenerTenisApiSports(),
         obtenerMMAApiSports(),
@@ -387,7 +659,7 @@ async function refrescarCacheAgenda() {
         obtenerEventosTheSportsDB('Golf'),
         obtenerEventosTheSportsDB('Boxing')
     ]);
-    const todos = [...futbol, ...basket, ...tenis, ...mma, ...f1, ...nhl, ...golf, ...boxeo];
+    const todos = [...futbolFD, ...futbolArg, ...basket, ...tenis, ...mma, ...f1, ...nhl, ...golf, ...boxeo];
     todos.sort((a, b) => a.hora.valueOf() - b.hora.valueOf());
     agendaCache = { fecha: fechaHoy(), eventos: todos };
     console.log(`✅ Caché lista: ${todos.length} eventos para hoy (${agendaCache.fecha})`);
