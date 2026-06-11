@@ -388,6 +388,37 @@ function fechaHoy() {
     return moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
 }
 
+// ── Traducción de países para el Mundial ──
+const PAISES_MUNDIAL = {
+    'Mexico': 'México', 'South Africa': 'Sudáfrica', 'South Korea': 'Corea del Sur',
+    'Czech Republic': 'Rep. Checa', 'United States': 'EE.UU.', 'USA': 'EE.UU.',
+    'Germany': 'Alemania', 'France': 'Francia', 'Spain': 'España',
+    'England': 'Inglaterra', 'Portugal': 'Portugal', 'Netherlands': 'Países Bajos',
+    'Brazil': 'Brasil', 'Uruguay': 'Uruguay', 'Colombia': 'Colombia',
+    'Chile': 'Chile', 'Ecuador': 'Ecuador', 'Peru': 'Perú',
+    'Paraguay': 'Paraguay', 'Bolivia': 'Bolivia', 'Venezuela': 'Venezuela',
+    'Morocco': 'Marruecos', 'Senegal': 'Senegal', 'Nigeria': 'Nigeria',
+    'Cameroon': 'Camerún', 'Ghana': 'Ghana', 'Egypt': 'Egipto',
+    'Algeria': 'Argelia', 'Tunisia': 'Túnez', 'Ivory Coast': 'Costa de Marfil',
+    'Congo DR': 'R.D. Congo', 'Kenya': 'Kenia', 'Zambia': 'Zambia',
+    'Japan': 'Japón', 'Iran': 'Irán', 'Saudi Arabia': 'Arabia Saudita',
+    'Australia': 'Australia', 'New Zealand': 'Nueva Zelanda', 'China': 'China',
+    'Indonesia': 'Indonesia', 'Uzbekistan': 'Uzbekistán',
+    'Canada': 'Canadá', 'Costa Rica': 'Costa Rica', 'Panama': 'Panamá',
+    'Jamaica': 'Jamaica', 'Honduras': 'Honduras', 'Guatemala': 'Guatemala',
+    'Cuba': 'Cuba', 'Venezuela': 'Venezuela',
+    'Poland': 'Polonia', 'Belgium': 'Bélgica', 'Italy': 'Italia',
+    'Croatia': 'Croacia', 'Switzerland': 'Suiza', 'Denmark': 'Dinamarca',
+    'Sweden': 'Suecia', 'Norway': 'Noruega', 'Austria': 'Austria',
+    'Hungary': 'Hungría', 'Slovakia': 'Eslovaquia', 'Slovenia': 'Eslovenia',
+    'Serbia': 'Serbia', 'Ukraine': 'Ucrania', 'Greece': 'Grecia',
+    'Turkey': 'Turquía', 'Romania': 'Rumania', 'Scotland': 'Escocia',
+    'Wales': 'Gales', 'Albania': 'Albania', 'Georgia': 'Georgia',
+    'Jordan': 'Jordania', 'Iraq': 'Irak', 'Qatar': 'Catar',
+    'New Caledonia': 'Nueva Caledonia', 'Cabo Verde': 'Cabo Verde',
+    'Curacao': 'Curazao',
+};
+
 // ── Mundial FIFA 2026: openfootball (GitHub raw, sin API key, sin restricciones IP) ──
 async function obtenerMundialOpenfootball() {
     try {
@@ -412,7 +443,7 @@ async function obtenerMundialOpenfootball() {
             if (!horaAR.isValid()) continue;
             eventos.push({
                 deporte: 'futbol', emoji: '⚽', hora: horaAR,
-                descripcion: `${m.team1 || '?'} vs ${m.team2 || '?'}`,
+                descripcion: `${PAISES_MUNDIAL[m.team1] || m.team1 || '?'} vs ${PAISES_MUNDIAL[m.team2] || m.team2 || '?'}`,
                 liga: 'Mundial FIFA 2026',
                 rolMencion: 'Fútbol'
             });
