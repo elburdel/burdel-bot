@@ -388,38 +388,61 @@ function fechaHoy() {
     return moment().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD');
 }
 
-// ── Fútbol: football-data.org (ligas internacionales) ──
-async function obtenerFutbolFootballData() {
+// ── Mundial FIFA 2026: openfootball (GitHub raw, sin API key, sin restricciones IP) ──
+async function obtenerMundialOpenfootball() {
     try {
-        const hoy = fechaHoy();
-        const resp = await axios.get('https://api.football-data.org/v4/matches', {
-            params: { dateFrom: hoy, dateTo: hoy },
-            headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
-            timeout: 15000
-        });
+        const resp = await axios.get(
+            'https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json',
+            { timeout: 15000 }
+        );
         const matches = resp.data?.matches || [];
-        console.log(`⚽ football-data.org: ${matches.length} partidos totales hoy`);
+        const hoy = fechaHoy();
         const eventos = [];
         for (const m of matches) {
-            const compCode = m.competition?.code;
-            if (!COMPS_FUTBOL_FD.includes(compCode)) continue;
-            const hora = moment(m.utcDate).tz('America/Argentina/Buenos_Aires');
-            if (!hora.isValid()) continue;
-            const homeTeam = m.homeTeam?.shortName || m.homeTeam?.name || '?';
-            const awayTeam = m.awayTeam?.shortName || m.awayTeam?.name || '?';
+            if (!m.date || !m.date.startsWith(hoy)) continue;
+            // Hora: "13:00 UTC-6" → convertir a AR
+            const timeStr = m.time || '';
+            const timeMatch = timeStr.match(/^(\d{2}:\d{2})\s*UTC([+-]\d+)$/);
+            if (!timeMatch) continue;
+            const [, hhmm, offsetStr] = timeMatch;
+            const offsetH = parseInt(offsetStr, 10);
+            // Construir momento UTC
+            const horaUTC = moment.tz(`${hoy} ${hhmm}`, 'YYYY-MM-DD HH:mm', 'UTC').subtract(offsetH, 'hours');
+            const horaAR  = horaUTC.clone().tz('America/Argentina/Buenos_Aires');
+            if (!horaAR.isValid()) continue;
             eventos.push({
-                deporte: 'futbol', emoji: '⚽', hora,
-                descripcion: `${homeTeam} vs ${awayTeam}`,
-                liga: NOMBRE_COMP_FUTBOL[compCode] || m.competition?.name || 'Fútbol',
+                deporte: 'futbol', emoji: '⚽', hora: horaAR,
+                descripcion: `${m.team1 || '?'} vs ${m.team2 || '?'}`,
+                liga: 'Mundial FIFA 2026',
                 rolMencion: 'Fútbol'
             });
         }
-        console.log(`⚽ Fútbol filtrado: ${eventos.length} partidos`);
+        console.log(`⚽ Mundial (openfootball): ${eventos.length} partidos hoy`);
         return eventos;
     } catch (e) {
-        console.error('⚠️ Error fútbol (football-data.org):', e.message);
+        console.error('⚠️ Error Mundial (openfootball):', e.message);
         return [];
     }
+}
+
+// ── Fútbol europeo: TheSportsDB por liga individual (evita el bloqueo de /matches global) ──
+// IDs TheSportsDB de ligas europeas
+const TSDB_LIGAS_EUROPEAS = [
+    { id: '4480', nombre: 'Champions League' },
+    { id: '4481', nombre: 'Europa League' },
+    { id: '4335', nombre: 'Premier League' },
+    { id: '4332', nombre: 'La Liga' },
+    { id: '4331', nombre: 'Bundesliga' },
+    { id: '4334', nombre: 'Serie A' },
+    { id: '4334', nombre: 'Ligue 1' },
+];
+
+async function obtenerFutbolFootballData() {
+    // football-data.org bloquea IPs de servidor (403 Host not in allowlist)
+    // Esta función queda como fallback vacío — el Mundial va por openfootball
+    // y las ligas argentinas/CONMEBOL van por obtenerFutbolTSDB()
+    console.log('⚽ football-data.org: omitido (bloquea IPs de servidor)');
+    return [];
 }
 
 // ── Fútbol argentino + Libertadores/Sudamericana: TheSportsDB ──
@@ -648,8 +671,8 @@ async function obtenerEventosTheSportsDB(deporte) {
 // ── Refresca la caché — solo llamar desde CronJob o al arrancar ──
 async function refrescarCacheAgenda() {
     console.log('📡 Refrescando caché de agenda deportiva...');
-    const [futbolFD, futbolArg, basket, tenis, mma, f1, nhl, golf, boxeo] = await Promise.all([
-        obtenerFutbolFootballData(),
+    const [mundial, futbolArg, basket, tenis, mma, f1, nhl, golf, boxeo] = await Promise.all([
+        obtenerMundialOpenfootball(),
         obtenerFutbolTSDB(),
         obtenerBasketApiSports(),
         obtenerTenisApiSports(),
@@ -659,7 +682,7 @@ async function refrescarCacheAgenda() {
         obtenerEventosTheSportsDB('Golf'),
         obtenerEventosTheSportsDB('Boxing')
     ]);
-    const todos = [...futbolFD, ...futbolArg, ...basket, ...tenis, ...mma, ...f1, ...nhl, ...golf, ...boxeo];
+    const todos = [...mundial, ...futbolArg, ...basket, ...tenis, ...mma, ...f1, ...nhl, ...golf, ...boxeo];
     todos.sort((a, b) => a.hora.valueOf() - b.hora.valueOf());
     agendaCache = { fecha: fechaHoy(), eventos: todos };
     console.log(`✅ Caché lista: ${todos.length} eventos para hoy (${agendaCache.fecha})`);
