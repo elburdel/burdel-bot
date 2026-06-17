@@ -1275,11 +1275,17 @@ server.listen(PORT, '0.0.0.0', () => {
     if (!HUGGING_FACE_URL) { console.log("⚠️  HUGGING_FACE_URL no configurada."); }
     else { console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`); }
     console.log('🔐 Intentando client.login()...');
+    const loginTimeout = setTimeout(() => {
+        console.error('💥 TIMEOUT: login no respondió en 60s — reiniciando proceso para reconectar.');
+        process.exit(1);
+    }, 60000);
     client.login(process.env.TOKEN)
-        .then(() => console.log('✅ client.login() resuelto correctamente'))
+        .then(() => { clearTimeout(loginTimeout); console.log('✅ client.login() resuelto correctamente'); })
         .catch(err => {
-            console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err.message);
-            console.error("💥 Stack:", err.stack);
+            clearTimeout(loginTimeout);
+            console.error('💥 ERROR AL LOGUEAR EN DISCORD:', err.message);
+            console.error('💥 Stack:', err.stack);
+            process.exit(1);
         });
 });
 
