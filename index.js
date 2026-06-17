@@ -1274,13 +1274,25 @@ server.listen(PORT, '0.0.0.0', () => {
     else { console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`); }
     if (!HUGGING_FACE_URL) { console.log("⚠️  HUGGING_FACE_URL no configurada."); }
     else { console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`); }
-    console.log('🔐 Intentando client.login()...');
-    client.login(process.env.TOKEN)
-        .then(() => console.log('✅ client.login() resuelto correctamente'))
-        .catch(err => {
-            console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err.message);
-            console.error("💥 Stack:", err.stack);
-        });
+    // ── Validar token contra la API REST antes de hacer login ──
+    axios.get('https://discord.com/api/v10/users/@me', {
+        headers: { Authorization: `Bot ${process.env.TOKEN}` },
+        timeout: 10000
+    }).then(r => {
+        console.log(`✅ Token REST válido — bot: ${r.data.username}#${r.data.discriminator}`);
+        console.log('🔐 Intentando client.login()...');
+        client.login(process.env.TOKEN)
+            .then(() => console.log('✅ client.login() resuelto correctamente'))
+            .catch(err => {
+                console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err.message);
+                console.error("💥 Stack:", err.stack);
+            });
+    }).catch(err => {
+        const status = err.response?.status;
+        const body   = JSON.stringify(err.response?.data);
+        console.error(`💥 Token REST INVÁLIDO — HTTP ${status}: ${body}`);
+        console.error('💥 No se intentará client.login() porque el token falló la validación.');
+    });
 });
 
 client.on('error', err => console.error('💥 Client error:', err.message));
