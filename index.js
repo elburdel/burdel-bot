@@ -1274,7 +1274,15 @@ server.listen(PORT, '0.0.0.0', () => {
     else { console.log(`✅ Token: "${process.env.TOKEN.substring(0, 5)}..."`); }
     if (!HUGGING_FACE_URL) { console.log("⚠️  HUGGING_FACE_URL no configurada."); }
     else { console.log(`✅ Hugging Face: ${HUGGING_FACE_URL}`); }
-    client.login(process.env.TOKEN).catch(err => {
-        console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err);
-    });
+    console.log('🔐 Intentando client.login()...');
+    client.login(process.env.TOKEN)
+        .then(() => console.log('✅ client.login() resuelto correctamente'))
+        .catch(err => {
+            console.error("💥 ERROR AL LOGUEAR EN DISCORD:", err.message);
+            console.error("💥 Stack:", err.stack);
+        });
 });
+
+client.on('error', err => console.error('💥 Client error:', err.message));
+client.on('warn',  msg => console.warn('⚠️  Client warn:', msg));
+client.on('debug', msg => { if (msg.includes('Heartbeat') || msg.includes('identify') || msg.includes('READY')) console.log('🔧 Debug:', msg); });
